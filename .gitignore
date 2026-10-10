@@ -1,0 +1,42 @@
+# Node dependencies
+node_modules/
+.npm/
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Python virtual environment & cache
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# SQLite databases
+*.db
+*.sqlite3
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Uploads
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep

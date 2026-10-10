@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:15-3.4
+    container_name: civiclens-postgis
+    environment:
+      POSTGRES_USER: civiclens
+      POSTGRES_PASSWORD: civiclens_secret_password
+      POSTGRES_DB: civiclens_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civiclens -d civiclens_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: civiclens-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: civiclens-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://civiclens:civiclens_secret_password@db:5432/civiclens_db
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=civiclens-super-secret-key-change-in-prod
+      - ENVIRONMENT=development
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

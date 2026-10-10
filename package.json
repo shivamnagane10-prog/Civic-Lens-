@@ -1,0 +1,17 @@
+{
+  "name": "civiclens-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "api": "powershell -Command \"$env:PYTHONPATH='apps/api'; .\\apps\\api\\.venv\\Scripts\\uvicorn app.main:app --reload --port 8000\"",
+    "web": "npm run dev --prefix apps/web",
+    "mobile": "npm run start --prefix apps/mobile",
+    "build:types": "npm run build --prefix packages/shared-types",
+    "build:web": "npm run build --prefix apps/web",
+    "test:api": "powershell -Command \"$env:PYTHONPATH='apps/api'; .\\apps\\api\\.venv\\Scripts\\pytest apps/api/tests/test_api.py -v\""
+  }
+}
