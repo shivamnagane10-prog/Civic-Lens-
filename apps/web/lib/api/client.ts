@@ -3,6 +3,8 @@ import {
   IssueCreate,
   IssueCategory,
   IssueStatus,
+  IssueStatusUpdate,
+  IssueSeverity,
   Ward,
   PublicWardMetrics,
   Crew,
@@ -114,11 +116,26 @@ export class ApiClient {
     });
   }
 
-  async updateIssueStatus(id: string, status: IssueStatus, comment?: string, actorRole?: string): Promise<Issue> {
+  async updateIssueStatus(
+    id: string,
+    status: IssueStatus,
+    comment?: string,
+    actorRole?: string,
+    extra?: Partial<IssueStatusUpdate>
+  ): Promise<Issue> {
     return this.request<Issue>(`/issues/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, comment, actor_role: actorRole }),
+      body: JSON.stringify({
+        status,
+        comment,
+        actor_role: actorRole,
+        ...extra,
+      }),
     });
+  }
+
+  async getIssueTimeline(id: string): Promise<any[]> {
+    return this.request<any[]>(`/issues/${id}/timeline`);
   }
 
   // Wards & Analytics

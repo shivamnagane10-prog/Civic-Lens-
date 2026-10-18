@@ -13,11 +13,17 @@ class IssueModel(Base):
     description = Column(Text, nullable=True)
     category = Column(String(50), nullable=False, index=True)  # pothole, garbage, drainage, water_leak, streetlight, other
     severity = Column(String(20), nullable=False, default="medium")  # low, medium, high, critical
-    status = Column(String(20), nullable=False, default="reported", index=True)  # reported, acknowledged, in_progress, resolved, rejected
+    status = Column(String(50), nullable=False, default="submitted", index=True)  # submitted, reported, acknowledged, assigned, in_progress, awaiting_inspection, rework_required, resolved, rejected
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     ward_id = Column(String(36), ForeignKey("wards.id"), nullable=False, index=True)
     photo_url = Column(Text, nullable=True)
+    after_photo_url = Column(Text, nullable=True)  # Crew completion after-photo
+    crew_notes = Column(Text, nullable=True)  # Crew work execution notes
+    engineer_remarks = Column(Text, nullable=True)  # Engineer quality certification/rejection remarks
+    approved_budget = Column(String(50), nullable=True)  # Sanctioned budget amount
+    assigned_crew_id = Column(String(36), ForeignKey("crews.id"), nullable=True, index=True)
+    inspection_checklist = Column(Text, nullable=True)  # JSON string of inspection checklist
     ai_confidence = Column(Float, default=0.0)
     source = Column(String(20), default="citizen")  # citizen, cctv, satellite, iot
     priority_score = Column(Float, default=50.0)

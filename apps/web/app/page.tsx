@@ -179,14 +179,170 @@ export default function Home() {
     }
   ]);
 
-  // Engineer Action: Mark assigned work as done and certified
-  const handleMarkWorkDone = async (issueId: string, workOrderId?: string, comment?: string) => {
+  // 1. Public Portal Submission Handler
+  const handleCitizenSubmitReport = async (payload: any): Promise<Issue> => {
+    const res = await api.createIssue(payload);
+    setIssues((prev) => [res, ...prev]);
+    setSelectedIssue(res);
+
+    // 🔔 Immediate Citizen Notification
+    setCitizenNotifications((prev) => [
+      {
+        id: `NOTIF-${Date.now()}`,
+        issueId: res.id,
+        title: '📝 Complaint Successfully Lodged (Status: Submitted)',
+        message: `Your complaint #${res.id} (${res.title}) has arrived at Central Municipal Command. Status: SUBMITTED. Awaiting Corporator review & budget approval.`,
+        type: 'reported',
+        timestamp: new Date().toLocaleTimeString()
+      },
+      ...prev
+    ]);
+
+    setLiveBanner(`🚨 New Complaint #${res.id} submitted! Status: SUBMITTED. Awaiting Operator review.`);
+    await loadData();
+    return res;
+  };
+
+  // 2. Operator / Corporator Action: Sanction budget, set priority, and assign crew
+  const handleSanctionWorkOrder = async (
+    issueId: string,
+    budgetAmount?: string,
+    assignedCrewId?: string,
+    priority?: string,
+    severity?: string
+  ) => {
+    const crewId = assignedCrewId || (crews.length > 0 ? crews[0].id : 'CREW-01');
+    const crewObj = crews.find((c) => c.id === crewId);
+
+    const updated = await api.updateIssueStatus(
+      issueId,
+      'assigned',
+      `Budget sanctioned (₹ ${budgetAmount || '15,107'}) and assigned to ${crewObj?.name || crewId} by Municipal Corporator`,
+      'admin',
+      {
+        assigned_crew_id: crewId,
+        approved_budget: budgetAmount,
+        severity: (severity as any) || 'medium',
+      }
+    );
+
+    setIssues((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    if (selectedIssue?.id === updated.id) {
+      setSelectedIssue(updated);
+    }
+
+    // 🔔 Notify Citizen: Complaint Assigned!
+    setCitizenNotifications((prev) => [
+      {
+        id: `NOTIF-${Date.now()}`,
+        issueId,
+        title: '🏛️ Work Order Sanctioned & Assigned!',
+        message: `Your complaint #${issueId} has been reviewed by the Municipal Corporator. Approved Budget: ₹${budgetAmount || '15,107'}. Assigned to ${crewObj?.name || 'Field Crew'}. Status: ASSIGNED.`,
+        type: 'in_progress',
+        timestamp: new Date().toLocaleTimeString()
+      },
+      ...prev
+    ]);
+
+    setLiveBanner(`🏛️ Corporator sanctioned ₹${budgetAmount || '15,107'} for #${issueId}! Assigned to ${crewObj?.name || crewId}.`);
+    await loadData();
+  };
+
+  // 3. Field Crew Action: Accept task & mark In Progress
+  const handleCrewAcceptTask = async (issueId: string, workOrderId?: string) => {
+    const updated = await api.updateIssueStatus(
+      issueId,
+      'in_progress',
+      'Field crew accepted task and commenced repairs on site',
+      'crew'
+    );
+
+    setIssues((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    if (selectedIssue?.id === updated.id) {
+      setSelectedIssue(updated);
+    }
+    if (workOrderId) {
+      await api.updateWorkOrderStatus(workOrderId, 'in_progress').catch(() => {});
+    }
+
+    // 🔔 Notify Citizen: Crew On-Site
+    setCitizenNotifications((prev) => [
+      {
+        id: `NOTIF-${Date.now()}`,
+        issueId,
+        title: '🛠️ Field Repairs In Progress!',
+        message: `Field crew has arrived on site for complaint #${issueId}. Active repair execution underway. Status: IN PROGRESS.`,
+        type: 'in_progress',
+        timestamp: new Date().toLocaleTimeString()
+      },
+      ...prev
+    ]);
+
+    setLiveBanner(`🛠️ Crew accepted task #${issueId}! Work is now IN PROGRESS on site.`);
+    await loadData();
+  };
+
+  // 4. Field Crew Action: Submit After-Photo and Notes for Engineering Inspection
+  const handleCrewSubmitInspection = async (
+    issueId: string,
+    afterPhotoUrl: string,
+    crewNotes: string,
+    workOrderId?: string
+  ) => {
+    const updated = await api.updateIssueStatus(
+      issueId,
+      'awaiting_inspection',
+      'Repairs concluded on site. Submitted for Municipal Engineer Quality Inspection.',
+      'crew',
+      {
+        after_photo_url: afterPhotoUrl,
+        crew_notes: crewNotes,
+      }
+    );
+
+    setIssues((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    if (selectedIssue?.id === updated.id) {
+      setSelectedIssue(updated);
+    }
+    if (workOrderId) {
+      await api.updateWorkOrderStatus(workOrderId, 'awaiting_inspection').catch(() => {});
+    }
+
+    // 🔔 Notify Citizen: Awaiting Quality Inspection
+    setCitizenNotifications((prev) => [
+      {
+        id: `NOTIF-${Date.now()}`,
+        issueId,
+        title: '📐 Repairs Concluded — Awaiting Quality Inspection',
+        message: `Field crew has completed repairs on #${issueId} and uploaded photographic evidence. Chief Municipal Engineer has been summoned for quality certification. Status: AWAITING INSPECTION.`,
+        type: 'in_progress',
+        timestamp: new Date().toLocaleTimeString()
+      },
+      ...prev
+    ]);
+
+    setLiveBanner(`📐 Crew finished repairs on #${issueId}! Status: AWAITING INSPECTION. Sent to Engineer.`);
+    await loadData();
+  };
+
+  // 5. Engineer Action: Approve & Mark Resolved
+  const handleEngineerApprove = async (
+    issueId: string,
+    checklist: Record<string, boolean>,
+    remarks: string,
+    workOrderId?: string
+  ) => {
     const updated = await api.updateIssueStatus(
       issueId,
       'resolved',
-      comment || 'Quality certified compliant by Municipal Engineer',
-      'engineer'
+      remarks || 'Chief Municipal Engineer certified quality compliance with IRC standards',
+      'engineer',
+      {
+        engineer_remarks: remarks,
+        inspection_checklist: checklist,
+      }
     );
+
     setIssues((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
     if (selectedIssue?.id === updated.id) {
       setSelectedIssue(updated);
@@ -195,88 +351,63 @@ export default function Home() {
       await api.updateWorkOrderStatus(workOrderId, 'completed').catch(() => {});
     }
 
-    // 🔔 Notify Public Citizen of Resolution!
+    // 🔔 Notify Public Citizen: Problem Resolved & Certified!
     setCitizenNotifications((prev) => [
       {
         id: `NOTIF-${Date.now()}`,
         issueId,
         title: '🎉 Problem Certified & Completed!',
-        message: `Great news! Chief Municipal Engineer has inspected and certified that repair work on #${issueId} is complete and meets all IRC safety standards. Hazard resolved!`,
+        message: `Great news! Chief Municipal Engineer has inspected and certified that repair work on #${issueId} meets all structural and IRC safety standards. Hazard resolved! Status: RESOLVED.`,
         type: 'resolved',
         timestamp: new Date().toLocaleTimeString()
       },
       ...prev
     ]);
 
-    setLiveBanner(`✅ Chief Engineer certified Issue ${issueId} as RESOLVED & COMPLETED! Notification sent to citizen.`);
+    setLiveBanner(`✅ Chief Engineer certified Issue #${issueId} as RESOLVED & COMPLETED! Citizen notified.`);
     await loadData();
   };
 
-  // Crew Action: Update live problem execution status
-  const handleUpdateWorkOrderStatus = async (workOrderId: string, status: string, issueId?: string) => {
-    await api.updateWorkOrderStatus(workOrderId, status).catch(() => {});
-    if (issueId) {
-      const issueStatus = status === 'completed' ? 'in_progress' : 'in_progress';
-      await api.updateIssueStatus(issueId, issueStatus as any, `Crew updated status to ${status}`, 'crew');
-      
-      if (status === 'completed') {
-        setCitizenNotifications((prev) => [
-          {
-            id: `NOTIF-${Date.now()}`,
-            issueId,
-            title: '🛠️ Field Work Finished by Crew',
-            message: `Field crew has concluded repairs on #${issueId}. Pending final Municipal Engineer quality certification.`,
-            type: 'in_progress',
-            timestamp: new Date().toLocaleTimeString()
-          },
-          ...prev
-        ]);
-      }
-    }
-    await loadData();
-  };
-
-  // Corporator Action: Sanction budget and release work order
-  const handleSanctionWorkOrder = async (issueId: string, budgetAmount?: string, assignedCrewId?: string) => {
-    // 1. Transition issue to 'in_progress'!
+  // 6. Engineer Action: Reject & Request Rework
+  const handleEngineerReject = async (
+    issueId: string,
+    checklist: Record<string, boolean>,
+    remarks: string,
+    workOrderId?: string
+  ) => {
     const updated = await api.updateIssueStatus(
       issueId,
-      'in_progress',
-      `Budget sanctioned (₹ ${budgetAmount || '15,107'}) and crew assigned by Municipal Corporator`,
-      'admin'
+      'rework_required',
+      remarks,
+      'engineer',
+      {
+        engineer_remarks: remarks,
+        inspection_checklist: checklist,
+      }
     );
+
     setIssues((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-    
-    // 2. Select assigned crew
-    const crewId = assignedCrewId || (crews.length > 0 ? crews[0].id : 'CREW-01');
-    const crewObj = crews.find((c) => c.id === crewId);
-
-    // 3. Create or update work order to 'in_progress'
-    await api.createWorkOrder(issueId, crewId, updated.priority_score).catch(() => {});
-
-    // 4. Update crew status to 'dispatched'
-    if (crewObj) {
-      await api.updateCrewLocation(crewId, {
-        latitude: crewObj.latitude,
-        longitude: crewObj.longitude,
-        status: 'dispatched'
-      }).catch(() => {});
+    if (selectedIssue?.id === updated.id) {
+      setSelectedIssue(updated);
+    }
+    if (workOrderId) {
+      await api.updateWorkOrderStatus(workOrderId, 'rework_required').catch(() => {});
     }
 
-    // 5. 🔔 Notify Public Citizen that Work is In Progress!
+    // 🔔 Notify Citizen: Rework Directive
     setCitizenNotifications((prev) => [
       {
         id: `NOTIF-${Date.now()}`,
         issueId,
-        title: '🚀 Work Order Sanctioned & Assigned!',
-        message: `Your complaint #${issueId} has been officially sanctioned by the Municipal Corporator and assigned to ${crewObj?.name || 'Rapid Response Crew'}. Work is now IN PROGRESS!`,
-        type: 'in_progress',
+        title: '⚠️ Municipal Engineer Requested Rework',
+        message: `Chief Municipal Engineer inspected #${issueId} and requested adjustments: "${remarks}". Field crew has been returned to perfect the repair. Status: REWORK REQUIRED.`,
+        type: 'rejected',
         timestamp: new Date().toLocaleTimeString()
       },
       ...prev
     ]);
 
-    setLiveBanner(`🚀 Corporator sanctioned ₹ ${budgetAmount || '15,107'} budget for Issue ${issueId}! Work order is now IN PROGRESS.`);
+    setLiveBanner(`⚠️ Chief Engineer requested REWORK on #${issueId}: "${remarks}". Returned to Field Crew.`);
     await loadData();
   };
 
@@ -481,7 +612,8 @@ export default function Home() {
             workOrders={workOrders}
             crews={crews}
             wards={wards}
-            onMarkWorkDone={handleMarkWorkDone}
+            onApproveWork={handleEngineerApprove}
+            onRejectWork={handleEngineerReject}
             onRefresh={loadData}
           />
         )}
@@ -492,7 +624,8 @@ export default function Home() {
             crews={crews}
             workOrders={workOrders}
             issues={issues}
-            onUpdateWorkOrderStatus={handleUpdateWorkOrderStatus}
+            onAcceptTask={handleCrewAcceptTask}
+            onSubmitInspection={handleCrewSubmitInspection}
             onUpdateCrewLocation={handleUpdateCrewLocation}
             onRefresh={loadData}
           />
@@ -504,27 +637,7 @@ export default function Home() {
             myIssues={issues.filter((i) => i.source === 'citizen')}
             notifications={citizenNotifications}
             onClearNotifications={() => setCitizenNotifications([])}
-            onSubmitReport={async (payload) => {
-              const res = await api.createIssue(payload);
-              setIssues((prev) => [res, ...prev]);
-              setSelectedIssue(res);
-
-              // 🔔 Immediate Citizen Confirmation Alert
-              setCitizenNotifications((prev) => [
-                {
-                  id: `NOTIF-${Date.now()}`,
-                  issueId: res.id,
-                  title: '📝 Complaint Successfully Lodged & Dispatched',
-                  message: `Your issue report #${res.id} (${res.title}) has arrived at Central Command and is awaiting Municipal Corporator budget sanction.`,
-                  type: 'reported',
-                  timestamp: new Date().toLocaleTimeString()
-                },
-                ...prev
-              ]);
-
-              setLiveBanner(`🚨 New Issue #${res.id} reported by citizen! Awaiting Corporator sanction.`);
-              await loadData();
-            }}
+            onSubmitReport={handleCitizenSubmitReport}
           />
         )}
 

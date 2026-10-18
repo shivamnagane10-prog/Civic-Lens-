@@ -8,6 +8,7 @@ from app.models.issue import IssueModel
 from app.models.status_event import StatusEventModel
 from app.models.work_order import WorkOrderModel
 from app.schemas.issue import IssueCreate, IssueResponse, IssueStatusUpdate
+from app.schemas.status_event import StatusEventResponse
 from app.services.auth_service import get_current_user_optional
 from app.services.websocket_manager import ws_manager
 from app.ml.classifier import CivicAIClassifier
@@ -17,13 +18,37 @@ from app.services.crew_dispatch_service import haversine_distance_km
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
-def _format_issue_response(issue: IssueModel) -> dict:
+def _format_issue_response(issue: IssueModel, db: Optional[Session] = None) -> dict:
     diag = None
     if issue.diagnostic_card:
         try:
             diag = json.loads(issue.diagnostic_card)
         except Exception:
             diag = None
+
+    checklist = None
+    if issue.inspection_checklist:
+        try:
+            checklist = json.loads(issue.inspection_checklist)
+        except Exception:
+            checklist = None
+
+    events_list = []
+    if db is not None:
+        raw_events = db.query(StatusEventModel).filter(StatusEventModel.issue_id == issue.id).order_by(StatusEventModel.timestamp.asc()).all()
+        events_list = [
+            {
+                "id": ev.id,
+                "issue_id": ev.issue_id,
+                "old_status": ev.old_status,
+                "new_status": ev.new_status,
+                "actor_id": ev.actor_id,
+                "actor_role": ev.actor_role,
+                "comment": ev.comment,
+                "timestamp": ev.timestamp
+            }
+            for ev in raw_events
+        ]
 
     return {
         "id": issue.id,
@@ -38,12 +63,19 @@ def _format_issue_response(issue: IssueModel) -> dict:
         "longitude": issue.longitude,
         "ward_id": issue.ward_id,
         "photo_url": issue.photo_url,
+        "after_photo_url": issue.after_photo_url,
+        "crew_notes": issue.crew_notes,
+        "engineer_remarks": issue.engineer_remarks,
+        "approved_budget": issue.approved_budget,
+        "assigned_crew_id": issue.assigned_crew_id,
+        "inspection_checklist": checklist,
         "ai_confidence": issue.ai_confidence,
         "source": issue.source,
         "priority_score": issue.priority_score,
         "diagnostic_card": diag,
         "created_at": issue.created_at,
-        "resolved_at": issue.resolved_at
+        "resolved_at": issue.resolved_at,
+        "events": events_list if events_list else None
     }
 
 @router.post("", response_model=IssueResponse, status_code=status.HTTP_201_CREATED)
@@ -88,7 +120,7 @@ async def create_issue(
         description=body.description,
         category=detected_category,
         severity=detected_severity,
-        status="reported",
+        status="submitted",
         latitude=body.latitude,
         longitude=body.longitude,
         ward_id=body.ward_id or "WARD-01",
@@ -107,25 +139,15 @@ async def create_issue(
     event = StatusEventModel(
         issue_id=new_issue.id,
         old_status=None,
-        new_status="reported",
+        new_status="submitted",
         actor_id=reporter_id,
         actor_role="citizen" if not user else user.role,
-        comment="Issue reported via " + (body.source or "citizen app")
+        comment="Complaint submitted by citizen with AI diagnostics"
     )
     db.add(event)
-
-    # If priority score >= 70, automatically initiate a work order
-    if priority_score >= 70.0:
-        wo = WorkOrderModel(
-            issue_id=new_issue.id,
-            priority_score=priority_score,
-            status="pending"
-        )
-        db.add(wo)
-
     db.commit()
 
-    resp = _format_issue_response(new_issue)
+    resp = _format_issue_response(new_issue, db)
 
     # Real-time WebSocket broadcast
     await ws_manager.broadcast("ISSUE_CREATED", resp)
@@ -169,14 +191,19 @@ def list_issues(
         except Exception:
             pass
 
-    return [_format_issue_response(i) for i in issues]
+    return [_format_issue_response(i, db) for i in issues]
 
 @router.get("/{id}", response_model=IssueResponse)
 def get_issue(id: str, db: Session = Depends(get_db)):
     issue = db.query(IssueModel).filter(IssueModel.id == id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    return _format_issue_response(issue)
+    return _format_issue_response(issue, db)
+
+@router.get("/{id}/timeline", response_model=List[StatusEventResponse])
+def get_issue_timeline(id: str, db: Session = Depends(get_db)):
+    events = db.query(StatusEventModel).filter(StatusEventModel.issue_id == id).order_by(StatusEventModel.timestamp.asc()).all()
+    return events
 
 @router.patch("/{id}/status", response_model=IssueResponse)
 async def update_issue_status(
@@ -191,6 +218,24 @@ async def update_issue_status(
 
     old_status = issue.status
     issue.status = body.status
+
+    if body.assigned_crew_id is not None:
+        issue.assigned_crew_id = body.assigned_crew_id
+    if body.approved_budget is not None:
+        issue.approved_budget = body.approved_budget
+    if body.after_photo_url is not None:
+        issue.after_photo_url = body.after_photo_url
+    if body.crew_notes is not None:
+        issue.crew_notes = body.crew_notes
+    if body.engineer_remarks is not None:
+        issue.engineer_remarks = body.engineer_remarks
+    if body.inspection_checklist is not None:
+        issue.inspection_checklist = json.dumps(body.inspection_checklist)
+    if body.priority_score is not None:
+        issue.priority_score = body.priority_score
+    if body.severity is not None:
+        issue.severity = body.severity
+
     if body.status == "resolved":
         issue.resolved_at = datetime.now(timezone.utc)
 
@@ -207,21 +252,41 @@ async def update_issue_status(
     )
     db.add(event)
 
-    # Sync corresponding work order if present
+    # Sync corresponding work order if present or create if assigned
     wo = db.query(WorkOrderModel).filter(WorkOrderModel.issue_id == issue.id).first()
-    if wo:
-        if body.status == "in_progress":
-            wo.status = "in_progress"
+    if not wo and (body.status in ["assigned", "in_progress", "awaiting_inspection", "rework_required", "resolved"] or issue.assigned_crew_id):
+        wo = WorkOrderModel(
+            issue_id=issue.id,
+            assigned_crew_id=issue.assigned_crew_id,
+            priority_score=issue.priority_score,
+            status=body.status
+        )
+        db.add(wo)
+    elif wo:
+        if issue.assigned_crew_id:
+            wo.assigned_crew_id = issue.assigned_crew_id
+        if body.status in ["assigned", "in_progress", "awaiting_inspection", "rework_required"]:
+            wo.status = body.status
         elif body.status == "resolved":
             wo.status = "completed"
             wo.completed_at = datetime.now(timezone.utc)
         elif body.status == "rejected":
             wo.status = "cancelled"
 
+    # Update crew status
+    if issue.assigned_crew_id:
+        crew = db.query(CrewModel).filter(CrewModel.id == issue.assigned_crew_id).first()
+        if crew:
+            if body.status in ["assigned", "in_progress", "awaiting_inspection", "rework_required"]:
+                crew.status = "dispatched"
+            elif body.status == "resolved":
+                crew.status = "available"
+
     db.commit()
     db.refresh(issue)
 
-    resp = _format_issue_response(issue)
+    resp = _format_issue_response(issue, db)
     await ws_manager.broadcast("ISSUE_STATUS_CHANGED", resp)
+    await ws_manager.broadcast("WORK_ORDER_UPDATED", {"issue_id": issue.id, "status": body.status})
 
     return resp

@@ -36,7 +36,7 @@ export interface CitizenNotification {
 
 interface CitizenPortalProps {
   myIssues: Issue[];
-  onSubmitReport: (payload: any) => Promise<void>;
+  onSubmitReport: (payload: any) => Promise<Issue | any>;
   notifications?: CitizenNotification[];
   onClearNotifications?: () => void;
 }
@@ -70,6 +70,9 @@ export const CitizenPortal: React.FC<CitizenPortalProps> = ({
   const [offlineQueue, setOfflineQueue] = useState<any[]>([]);
   const [isOnline, setIsOnline] = useState(true);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [recentlySubmitted, setRecentlySubmitted] = useState<Issue | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
   
   // AI Diagnostics state matching User Screenshots 2 & 3
   const [isClassifying, setIsClassifying] = useState(false);
@@ -251,8 +254,13 @@ export const CitizenPortal: React.FC<CitizenPortalProps> = ({
     }
 
     try {
-      await onSubmitReport(reportPayload);
-      setSuccessNotice('Work Order Issued! Vision AI has diagnosed the hazard and routed to the municipal team.');
+      const created = await onSubmitReport(reportPayload);
+      if (created) {
+        setRecentlySubmitted(created);
+        setSuccessNotice(`✅ Complaint Registered Successfully! Unique ID: #${created.id} • Status: Submitted`);
+      } else {
+        setSuccessNotice('Work Order Issued! Vision AI has diagnosed the hazard and routed to the municipal team.');
+      }
     } catch (err: any) {
       const updatedQueue = [...offlineQueue, reportPayload];
       setOfflineQueue(updatedQueue);
@@ -300,6 +308,72 @@ export const CitizenPortal: React.FC<CitizenPortalProps> = ({
         <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2.5 text-xs text-emerald-300 shadow-md">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
           <span className="font-medium">{successNotice}</span>
+        </div>
+      )}
+
+      {recentlySubmitted && (
+        <div className="bg-gradient-to-r from-blue-950/70 via-slate-900 to-indigo-950/70 border-2 border-blue-500/50 rounded-2xl p-5 shadow-2xl space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
+                <CheckCircle2 className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Complaint Registered</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    Status: Submitted
+                  </span>
+                </div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  Complaint ID: <span className="font-mono text-cyan-300">{recentlySubmitted.id}</span>
+                </h3>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                  navigator.clipboard.writeText(recentlySubmitted.id);
+                  setCopiedId(recentlySubmitted.id);
+                  setTimeout(() => setCopiedId(null), 2500);
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-all"
+            >
+              {copiedId === recentlySubmitted.id ? '✓ Copied ID' : '📋 Copy Complaint ID'}
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-300">
+            Your complaint has been logged and transmitted in real-time to the Municipal Operator Dashboard. You will receive live status updates as the Corporator sanctions the work order and the Field Crew executes the repairs.
+          </p>
+
+          {/* 5-Stage Live Progress Pipeline */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-[10px] font-bold">
+              <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300">
+                1. 📝 Submitted
+                <span className="block text-[9px] font-normal text-slate-400 mt-0.5">Citizen logged</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500">
+                2. 🏛️ Assigned
+                <span className="block text-[9px] font-normal text-slate-500 mt-0.5">Operator sanction</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500">
+                3. 🛠️ In Progress
+                <span className="block text-[9px] font-normal text-slate-500 mt-0.5">Crew on site</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500">
+                4. 📐 Awaiting Inspection
+                <span className="block text-[9px] font-normal text-slate-500 mt-0.5">Repairs completed</span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-800/40 border border-slate-800 text-slate-500">
+                5. ✅ Resolved
+                <span className="block text-[9px] font-normal text-slate-500 mt-0.5">Engineer certified</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -806,68 +880,233 @@ export const CitizenPortal: React.FC<CitizenPortalProps> = ({
       )}
 
       {/* Citizen "My Reports Timeline" */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-white font-bold text-base">My Submitted Reports Timeline</h3>
-          <span className="text-xs text-slate-400 bg-slate-800 px-2.5 py-0.5 rounded-full">
-            {myIssues.length} Submissions
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div>
+            <h3 className="text-white font-extrabold text-base flex items-center gap-2">
+              <Compass className="w-4 h-4 text-sky-400" />
+              My Submitted Complaints &amp; Work Progress
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Track live municipal workflow: Citizen &rarr; Operator &rarr; Field Crew &rarr; Quality Inspection &rarr; Resolution
+            </p>
+          </div>
+          <span className="text-xs text-sky-300 font-mono bg-sky-950/80 border border-sky-800/80 px-3 py-1 rounded-full font-bold">
+            {myIssues.length} Complaints Registered
           </span>
         </div>
 
-        <div className="space-y-3">
-          {myIssues.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 text-xs">
-              No reports submitted yet. Submit your first issue using the form above.
+        {/* Status Filter Pills */}
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          {['all', 'submitted', 'assigned', 'in_progress', 'awaiting_inspection', 'rework_required', 'resolved'].map((st) => (
+            <button
+              key={st}
+              type="button"
+              onClick={() => setFilterStatus(st)}
+              className={`px-3 py-1 rounded-lg font-bold capitalize transition-all ${
+                filterStatus === st
+                  ? 'bg-sky-600 text-white shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+            >
+              {st.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          {myIssues.filter((i) => filterStatus === 'all' || i.status === filterStatus).length === 0 ? (
+            <div className="text-center py-10 bg-slate-950/50 rounded-xl border border-dashed border-slate-800 text-slate-400 text-xs">
+              <CheckCircle2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              No complaints in &quot;{filterStatus.replace('_', ' ')}&quot; status.
             </div>
           ) : (
-            myIssues.map((issue) => (
-              <div
-                key={issue.id}
-                className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="text-[10px] font-mono text-sky-400 font-bold">{issue.id}</span>
-                    <h4 className="text-sm font-bold text-white mt-0.5">{issue.title}</h4>
-                  </div>
-                  <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    issue.status === 'resolved'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : issue.status === 'in_progress'
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                  }`}>
-                    {issue.status.replace('_', ' ')}
-                  </span>
-                </div>
+            myIssues
+              .filter((i) => filterStatus === 'all' || i.status === filterStatus)
+              .map((issue) => {
+                const isResolved = issue.status === 'resolved';
+                const isAwaiting = issue.status === 'awaiting_inspection';
+                const isInProg = issue.status === 'in_progress';
+                const isAssigned = issue.status === 'assigned';
+                const isRework = issue.status === 'rework_required';
+                const isSub = issue.status === 'submitted' || issue.status === 'reported';
 
-                <div className="text-xs text-slate-400">
-                  {issue.description}
-                </div>
+                return (
+                  <div
+                    key={issue.id}
+                    className="p-5 bg-[#091124] border border-slate-800 rounded-xl space-y-4 shadow-md hover:border-slate-700 transition-all"
+                  >
+                    {/* Header Row: ID, Category & Distinct Status Badge */}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-cyan-400 font-extrabold bg-cyan-950/70 border border-cyan-800 px-2 py-0.5 rounded">
+                            #{issue.id}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                                navigator.clipboard.writeText(issue.id);
+                                setCopiedId(issue.id);
+                                setTimeout(() => setCopiedId(null), 2000);
+                              }
+                            }}
+                            className="text-[10px] text-slate-400 hover:text-slate-200 font-semibold underline"
+                          >
+                            {copiedId === issue.id ? '✓ Copied' : 'Copy ID'}
+                          </button>
+                          <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                            {issue.category.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white mt-1">{issue.title}</h4>
+                      </div>
 
-                {/* Progress bar */}
-                <div className="pt-2">
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 mb-1">
-                    <span className={issue.status ? 'text-sky-400 font-bold' : ''}>Reported</span>
-                    <span className={['acknowledged', 'in_progress', 'resolved'].includes(issue.status) ? 'text-sky-400 font-bold' : ''}>
-                      Acknowledged
-                    </span>
-                    <span className={['in_progress', 'resolved'].includes(issue.status) ? 'text-amber-400 font-bold' : ''}>
-                      In Progress
-                    </span>
-                    <span className={issue.status === 'resolved' ? 'text-emerald-400 font-bold' : ''}>
-                      Resolved & Certified
-                    </span>
+                      {/* Distinct Status Badge */}
+                      <span
+                        className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider border shadow-sm ${
+                          isResolved
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : isRework
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : isAwaiting
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : isInProg
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : isAssigned
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                            : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                        }`}
+                      >
+                        {issue.status.replace('_', ' ')}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-300 bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                      {issue.description}
+                    </div>
+
+                    {/* Before & After Photo Previews */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {issue.photo_url && (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                            <Camera className="w-3 h-3 text-sky-400" />
+                            Original Citizen Photo (Before)
+                          </span>
+                          <div className="relative h-32 rounded-lg overflow-hidden border border-slate-800 bg-black">
+                            <img
+                              src={issue.photo_url}
+                              alt="Citizen report photo"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {issue.after_photo_url ? (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            Field Crew Completion Photo (After)
+                          </span>
+                          <div className="relative h-32 rounded-lg overflow-hidden border border-emerald-500/40 bg-black">
+                            <img
+                              src={issue.after_photo_url}
+                              alt="Crew repair photo"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <Wrench className="w-3 h-3 text-slate-500" />
+                            Field Crew Completion Photo (After)
+                          </span>
+                          <div className="h-32 rounded-lg border border-dashed border-slate-800 flex flex-col items-center justify-center p-3 text-center bg-slate-950/40">
+                            <Clock className="w-5 h-5 text-slate-600 mb-1" />
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Repairs in progress. Crew will upload after-photo upon completion.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Engineer Remarks or Rework Alert */}
+                    {issue.engineer_remarks && (
+                      <div
+                        className={`p-3 rounded-lg border text-xs space-y-1 ${
+                          isRework
+                            ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                            : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                        }`}
+                      >
+                        <span className="font-extrabold uppercase text-[10px] block">
+                          {isRework ? '⚠️ Engineer Rework Directive' : '✅ Chief Engineer Sign-Off Remarks'}
+                        </span>
+                        <p>{issue.engineer_remarks}</p>
+                      </div>
+                    )}
+
+                    {/* 5-Stage Visual Workflow Stepper */}
+                    <div className="pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center justify-between text-[10px] font-bold mb-1.5">
+                        <span className="text-blue-400">1. Submitted</span>
+                        <span className={isAssigned || isInProg || isAwaiting || isResolved ? 'text-purple-400' : 'text-slate-600'}>
+                          2. Assigned
+                        </span>
+                        <span className={isInProg || isAwaiting || isResolved ? 'text-amber-400' : 'text-slate-600'}>
+                          3. In Progress
+                        </span>
+                        <span className={isAwaiting || isResolved ? 'text-cyan-400' : 'text-slate-600'}>
+                          4. Inspection
+                        </span>
+                        <span className={isResolved ? 'text-emerald-400' : isRework ? 'text-rose-400' : 'text-slate-600'}>
+                          {isRework ? '5. Rework Req.' : '5. Resolved'}
+                        </span>
+                      </div>
+
+                      <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden flex border border-slate-800">
+                        {/* Stage 1 */}
+                        <div className="bg-blue-500 h-full w-1/5" />
+                        {/* Stage 2 */}
+                        <div className={`h-full w-1/5 ${isAssigned || isInProg || isAwaiting || isResolved ? 'bg-purple-500' : 'bg-transparent'}`} />
+                        {/* Stage 3 */}
+                        <div className={`h-full w-1/5 ${isInProg || isAwaiting || isResolved ? 'bg-amber-500' : 'bg-transparent'}`} />
+                        {/* Stage 4 */}
+                        <div className={`h-full w-1/5 ${isAwaiting || isResolved ? 'bg-cyan-500' : 'bg-transparent'}`} />
+                        {/* Stage 5 */}
+                        <div className={`h-full w-1/5 ${isResolved ? 'bg-emerald-500' : isRework ? 'bg-rose-500' : 'bg-transparent'}`} />
+                      </div>
+                    </div>
+
+                    {/* Audit History Log */}
+                    {issue.events && issue.events.length > 0 && (
+                      <details className="text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+                        <summary className="cursor-pointer font-semibold text-slate-300 hover:text-white">
+                          View Status Event History ({issue.events.length} Events)
+                        </summary>
+                        <div className="mt-2 space-y-1.5 pl-2 border-l border-slate-700">
+                          {issue.events.map((ev, idx) => (
+                            <div key={ev.id || idx} className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-200 capitalize">{ev.actor_role || 'official'}:</span>
+                                <span className="text-slate-400 font-mono text-[10px]">
+                                  {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-slate-300 text-[10px]">{ev.comment}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   </div>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden flex">
-                    <div className="bg-sky-500 h-full w-1/4" />
-                    <div className={`h-full w-1/4 ${['acknowledged', 'in_progress', 'resolved'].includes(issue.status) ? 'bg-sky-500' : 'bg-transparent'}`} />
-                    <div className={`h-full w-1/4 ${['in_progress', 'resolved'].includes(issue.status) ? 'bg-amber-500' : 'bg-transparent'}`} />
-                    <div className={`h-full w-1/4 ${issue.status === 'resolved' ? 'bg-emerald-500' : 'bg-transparent'}`} />
-                  </div>
-                </div>
-              </div>
-            ))
+                );
+              })
           )}
         </div>
       </div>

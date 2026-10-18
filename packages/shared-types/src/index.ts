@@ -35,9 +35,13 @@ export type IssueCategory =
 export type IssueSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export type IssueStatus =
+  | 'submitted'
   | 'reported'
   | 'acknowledged'
+  | 'assigned'
   | 'in_progress'
+  | 'awaiting_inspection'
+  | 'rework_required'
   | 'resolved'
   | 'rejected';
 
@@ -64,12 +68,19 @@ export interface Issue {
   longitude: number;
   ward_id: string;
   photo_url?: string | null;
+  after_photo_url?: string | null;
+  crew_notes?: string | null;
+  engineer_remarks?: string | null;
+  approved_budget?: string | null;
+  assigned_crew_id?: string | null;
+  inspection_checklist?: Record<string, boolean> | null;
   ai_confidence: number;
   source: IssueSource;
   priority_score: number;
   diagnostic_card?: DiagnosticCard | null;
   created_at: string;
   resolved_at?: string | null;
+  events?: StatusEvent[];
 }
 
 export type WorkOrderStatus =
@@ -169,6 +180,14 @@ export interface IssueStatusUpdate {
   comment?: string;
   actor_id?: string;
   actor_role?: string;
+  assigned_crew_id?: string;
+  approved_budget?: string;
+  after_photo_url?: string;
+  crew_notes?: string;
+  engineer_remarks?: string;
+  inspection_checklist?: Record<string, boolean>;
+  priority_score?: number;
+  severity?: IssueSeverity;
 }
 
 export interface CrewLocationUpdate {

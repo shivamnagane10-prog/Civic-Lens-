@@ -18,15 +18,24 @@ import {
   FileText,
   ShieldAlert,
   ChevronRight,
-  Package
+  Package,
+  Upload,
+  ArrowRight
 } from 'lucide-react';
 import { getDiagnosticPreset } from '../lib/diagnosticData';
+import { api } from '../lib/api/client';
 
 interface CrewPortalProps {
   crews: Crew[];
   workOrders: WorkOrder[];
   issues: Issue[];
-  onUpdateWorkOrderStatus: (workOrderId: string, status: string, issueId?: string) => Promise<void>;
+  onAcceptTask: (issueId: string, workOrderId?: string) => Promise<void>;
+  onSubmitInspection: (
+    issueId: string,
+    afterPhotoUrl: string,
+    crewNotes: string,
+    workOrderId?: string
+  ) => Promise<void>;
   onUpdateCrewLocation: (crewId: string, lat: number, lon: number, status: any) => Promise<void>;
   onRefresh: () => Promise<void>;
 }
@@ -35,7 +44,8 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
   crews,
   workOrders,
   issues,
-  onUpdateWorkOrderStatus,
+  onAcceptTask,
+  onSubmitInspection,
   onUpdateCrewLocation,
   onRefresh,
 }) => {
@@ -43,90 +53,95 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
   const [selectedCrewId, setSelectedCrewId] = useState<string>(
     crews.length > 0 ? crews[0].id : 'CREW-01'
   );
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [proofPhotoUrl, setProofPhotoUrl] = useState<string>('');
+  const [filterTab, setFilterTab] = useState<string>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Field execution form inputs
+  const [afterPhotoUrl, setAfterPhotoUrl] = useState<string>(
+    'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=600&q=80'
+  );
+  const [crewNotes, setCrewNotes] = useState<string>(
+    'Excavated cavity to solid sub-base, applied prime coat bitumen emulsion, filled with 50mm compacted asphalt patch, rolled smooth with vibrating roller.'
+  );
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const activeCrew = crews.find((c) => c.id === selectedCrewId) || crews[0];
 
-  // Find all work orders assigned to this crew
-  const myAssignedOrders = workOrders.filter((wo) => {
-    return wo.assigned_crew_id === activeCrew?.id;
+  // Find all issues assigned to this crew (via assigned_crew_id or work orders)
+  const myAssignedIssues = issues.filter((i) => {
+    if (i.assigned_crew_id === activeCrew?.id) return true;
+    const wo = workOrders.find((w) => w.issue_id === i.id);
+    return wo?.assigned_crew_id === activeCrew?.id;
   });
 
-  // Map assigned work orders to jobs
-  const myJobsFromOrders = myAssignedOrders.map((wo) => {
-    const issue = issues.find((i) => i.id === wo.issue_id);
-    return {
-      workOrder: wo,
-      issue: issue || null,
-      diagnostic: issue ? getDiagnosticPreset(issue.category) : getDiagnosticPreset('pothole')
-    };
+  // Selected issue
+  const activeIssue =
+    myAssignedIssues.find((i) => i.id === selectedIssueId) ||
+    myAssignedIssues[0] ||
+    (issues.length > 0 ? issues[0] : null);
+
+  const activeWorkOrder = workOrders.find((w) => w.issue_id === activeIssue?.id);
+  const diagnostic = activeIssue ? getDiagnosticPreset(activeIssue.category) : getDiagnosticPreset('pothole');
+
+  // Filtered list
+  const filteredMyIssues = myAssignedIssues.filter((i) => {
+    if (filterTab === 'all') return true;
+    return i.status === filterTab;
   });
 
-  // Also include in_progress issues that belong to this crew or are active
-  const inProgressIssues = issues.filter(
-    (i) => i.status === 'in_progress' && !myJobsFromOrders.some((job) => job.issue?.id === i.id)
-  );
-
-  const myJobsFromIssues = inProgressIssues.map((issue, idx) => ({
-    workOrder: {
-      id: `WO-${issue.id.slice(0, 8)}`,
-      issue_id: issue.id,
-      assigned_crew_id: activeCrew?.id,
-      priority_score: issue.priority_score,
-      status: 'in_progress',
-      created_at: issue.created_at
-    } as WorkOrder,
-    issue,
-    diagnostic: getDiagnosticPreset(issue.category)
-  }));
-
-  const myJobs = [...myJobsFromOrders, ...myJobsFromIssues];
-
-  // If no job explicitly selected, default to first assigned job
-  const activeJob =
-    myJobs.find((j) => j.workOrder.id === selectedJobId) ||
-    myJobs[0] ||
-    (issues.length > 0
-      ? {
-          workOrder: {
-            id: `WO-${issues[0].id.slice(0, 8)}`,
-            issue_id: issues[0].id,
-            assigned_crew_id: activeCrew?.id,
-            priority_score: issues[0].priority_score,
-            status: issues[0].status === 'in_progress' ? 'in_progress' : 'assigned',
-            created_at: new Date().toISOString()
-          } as WorkOrder,
-          issue: issues[0],
-          diagnostic: getDiagnosticPreset(issues[0].category)
-        }
-      : null);
-
-  const handleUpdateStatus = async (newStatus: string) => {
-    if (!activeJob) return;
+  const handleAccept = async (issueId: string) => {
     setIsUpdating(true);
     setActionNotice(null);
-
     try {
-      await onUpdateWorkOrderStatus(activeJob.workOrder.id, newStatus, activeJob.issue?.id);
-      
-      // Also update crew status
-      let crewStatus: any = 'dispatched';
-      if (newStatus === 'completed') crewStatus = 'available';
-      else if (newStatus === 'in_progress') crewStatus = 'busy';
-
-      if (activeCrew) {
-        await onUpdateCrewLocation(activeCrew.id, activeCrew.latitude, activeCrew.longitude, crewStatus);
-      }
-
-      setActionNotice(`Status updated to "${newStatus.toUpperCase()}"! Notification dispatched to Municipal Engineer.`);
+      await onAcceptTask(issueId, activeWorkOrder?.id);
+      setActionNotice(`✅ Task accepted for #${issueId}! Work status is now IN PROGRESS. Dispatched telemetry updated.`);
       await onRefresh();
     } catch (e: any) {
-      setActionNotice(`Update error: ${e.message || 'Server error'}`);
+      setActionNotice(`Error accepting task: ${e.message || 'Server error'}`);
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleSubmitForInspection = async (issueId: string) => {
+    if (!afterPhotoUrl) {
+      setActionNotice('Please upload or provide a completion after-photo before submitting for inspection.');
+      return;
+    }
+    setIsUpdating(true);
+    setActionNotice(null);
+    try {
+      await onSubmitInspection(issueId, afterPhotoUrl, crewNotes, activeWorkOrder?.id);
+      setActionNotice(`🎉 Repairs submitted for Engineering Inspection! Status: AWAITING INSPECTION. Chief Engineer notified.`);
+      await onRefresh();
+    } catch (e: any) {
+      setActionNotice(`Error submitting for inspection: ${e.message || 'Server error'}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingPhoto(true);
+    try {
+      const res = await api.uploadImage(file);
+      if (res && res.url) {
+        setAfterPhotoUrl(res.url);
+        setActionNotice('Uploaded completion after-photo successfully!');
+      }
+    } catch (e) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (reader.result) setAfterPhotoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingPhoto(false);
     }
   };
 
@@ -134,11 +149,10 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
     if (!activeCrew) return;
     setIsUpdating(true);
     try {
-      // Simulate slight movement or GPS ping
       const newLat = +(activeCrew.latitude + (Math.random() - 0.5) * 0.005).toFixed(4);
       const newLon = +(activeCrew.longitude + (Math.random() - 0.5) * 0.005).toFixed(4);
       await onUpdateCrewLocation(activeCrew.id, newLat, newLon, activeCrew.status);
-      setActionNotice(`Live GPS broadcasted: ${newLat}, ${newLon} (Sent to Central Command)`);
+      setActionNotice(`📍 Live GPS Broadcasted: ${newLat}° N, ${newLon}° E (Transmitted to Central Command)`);
       await onRefresh();
     } catch (e) {
       console.error(e);
@@ -157,40 +171,48 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
             Field Operative Mobile Workstation
           </div>
           <h2 className="text-2xl font-black text-white tracking-tight">
-            My Assigned Field Problems & Work Orders
+            Assigned Field Tasks &amp; Repair Execution
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time hazard route navigation, tools & material requisition checklist, and job progression logs.
+            Accept assigned tasks, visit location, execute repairs, upload completion after-photos, and submit for Engineering Quality Inspection.
           </p>
         </div>
 
         {/* Crew Selector & Telemetry */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-semibold text-slate-400 pl-2">Active Unit:</span>
+            <span className="text-[11px] font-semibold text-slate-400 pl-2">Active Crew:</span>
             <select
               value={selectedCrewId}
               onChange={(e) => {
                 setSelectedCrewId(e.target.value);
-                setSelectedJobId(null);
+                setSelectedIssueId(null);
               }}
               className="bg-slate-900 text-amber-300 font-bold text-xs px-3 py-1.5 rounded-lg border border-slate-700 focus:outline-none"
             >
               {crews.map((crew) => (
                 <option key={crew.id} value={crew.id}>
-                  {crew.name} ({crew.status.toUpperCase()})
+                  {crew.name} ({crew.status === 'available' ? '🟢 Available' : '🟡 Dispatched'})
                 </option>
               ))}
             </select>
           </div>
 
           <button
+            type="button"
             onClick={handleBroadcastGps}
             disabled={isUpdating}
-            className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20"
           >
-            <Radio className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-            Update Live GPS
+            <Radio className="w-3.5 h-3.5 animate-pulse" /> Ping GPS
+          </button>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Sync
           </button>
         </div>
       </div>
@@ -202,74 +224,123 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
         </div>
       )}
 
-      {/* Main Layout: Left Assigned Jobs List & Right Job Operations Workspace */}
+      {/* Main Layout: Left Queue & Right Operations Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Assigned Problems Queue (5 cols) */}
         <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Package className="w-4 h-4 text-amber-400" />
-              Assigned Problems ({myJobs.length})
-            </h3>
-            <span className="text-[10px] text-slate-400 font-mono">
-              Unit: {activeCrew?.name}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-400" />
+                Tasks For {activeCrew?.name}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Select an assignment to view repair details and execute work
+              </p>
+            </div>
+            <span className="text-xs text-amber-300 font-mono bg-amber-950/80 border border-amber-800 px-2.5 py-0.5 rounded-full font-bold">
+              {myAssignedIssues.length} Assigned
             </span>
+          </div>
+
+          {/* Filter Tabs for Crew */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'assigned', label: 'New Assigned' },
+              { id: 'in_progress', label: 'In Progress' },
+              { id: 'rework_required', label: 'Rework Req.' },
+              { id: 'awaiting_inspection', label: 'In Inspection' },
+              { id: 'resolved', label: 'Certified' },
+            ].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setFilterTab(t.id)}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                  filterTab === t.id
+                    ? 'bg-amber-600 text-slate-950 shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           {/* Jobs List */}
           <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
-            {myJobs.length === 0 ? (
-              <div className="p-8 text-center bg-slate-950/60 rounded-xl border border-dashed border-slate-800 text-xs text-slate-400">
+            {filteredMyIssues.length === 0 ? (
+              <div className="p-10 text-center bg-slate-950/60 rounded-xl border border-dashed border-slate-800 text-xs text-slate-400">
                 <Truck className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                No pending work orders currently assigned to {activeCrew?.name}.
+                No tasks found in &quot;{filterTab.replace('_', ' ')}&quot; status for this crew.
                 <div className="text-[11px] text-slate-500 mt-1">
-                  You will receive real-time dispatch alerts when the Engineer or Municipal Corporator assigns a problem.
+                  Operator will assign complaints from the municipal queue.
                 </div>
               </div>
             ) : (
-              myJobs.map((job) => {
-                const isSelected = activeJob?.workOrder.id === job.workOrder.id;
-                const isCompleted = job.workOrder.status === 'completed';
+              filteredMyIssues.map((issue) => {
+                const isSelected = activeIssue?.id === issue.id;
+                const isRework = issue.status === 'rework_required';
 
                 return (
                   <div
-                    key={job.workOrder.id}
-                    onClick={() => setSelectedJobId(job.workOrder.id)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                    key={issue.id}
+                    onClick={() => setSelectedIssueId(issue.id)}
+                    className={`p-4 rounded-xl border transition-all cursor-pointer space-y-2 ${
                       isSelected
-                        ? 'bg-slate-950 border-amber-500/80 shadow-md shadow-amber-500/10'
+                        ? 'bg-slate-950 border-amber-500 shadow-md shadow-amber-500/10'
+                        : isRework
+                        ? 'bg-rose-950/20 border-rose-500/40 hover:border-rose-500'
                         : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-[10px] font-mono font-bold text-amber-400">
-                        {job.workOrder.id}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        isCompleted
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : job.workOrder.status === 'in_progress'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                      }`}>
-                        {job.workOrder.status}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono font-bold text-amber-400">
+                          #{issue.id}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                          {issue.category.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                          issue.status === 'resolved'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                            : issue.status === 'rework_required'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                            : issue.status === 'awaiting_inspection'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                            : issue.status === 'in_progress'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                        }`}
+                      >
+                        {issue.status.replace('_', ' ')}
                       </span>
                     </div>
 
-                    <h4 className="text-xs font-bold text-white mb-1.5">
-                      {job.issue?.title || `${job.diagnostic.category.toUpperCase()} Repair Job`}
-                    </h4>
+                    <h4 className="text-xs font-bold text-white line-clamp-1">{issue.title}</h4>
 
-                    <div className="text-[11px] text-slate-400 flex items-center gap-1 mb-2">
+                    <div className="text-[11px] text-slate-400 flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                       <span className="truncate">
-                        {job.issue?.latitude.toFixed(4)}, {job.issue?.longitude.toFixed(4)}
+                        {issue.latitude.toFixed(4)}° N, {issue.longitude.toFixed(4)}° E ({issue.ward_id})
                       </span>
                     </div>
 
+                    {isRework && (
+                      <div className="p-2 bg-rose-500/10 border border-rose-500/30 rounded text-[10px] text-rose-300 font-medium">
+                        ⚠️ Rework required: {issue.engineer_remarks || 'Inspection failed'}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between text-[10px] font-semibold pt-2 border-t border-slate-900">
-                      <span className="text-slate-400">Target SLA:</span>
-                      <span className="text-amber-400 font-bold">{job.diagnostic.estimate.workWindow}</span>
+                      <span className="text-slate-400">Approved Budget:</span>
+                      <span className="text-[#2dd4bf] font-bold font-mono">
+                        ₹ {issue.approved_budget || diagnostic.estimate.inr}
+                      </span>
                     </div>
                   </div>
                 );
@@ -280,7 +351,7 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
 
         {/* Right Column: Problem Details, Checklist & Field Controls (7 cols) */}
         <div className="lg:col-span-7 space-y-5">
-          {activeJob ? (
+          {activeIssue ? (
             <div className="bg-[#0b1329] border border-slate-800/90 rounded-2xl p-6 shadow-2xl space-y-6">
               {/* Job Header */}
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-4">
@@ -289,147 +360,244 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
                       Assigned to {activeCrew?.name}
                     </span>
-                    <span className="text-xs font-mono text-slate-400">
-                      WO: {activeJob.workOrder.id}
+                    <span className="text-xs font-mono text-cyan-400 font-bold">
+                      #{activeIssue.id}
                     </span>
                   </div>
                   <h3 className="text-lg font-black text-white mt-1.5">
-                    {activeJob.issue?.title || activeJob.diagnostic.geometry.title}
+                    {activeIssue.title || diagnostic.geometry.title}
                   </h3>
                   <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-red-400" />
-                    <span>Location: 42 MG Road, near Trinity Junction (Opposite Metro Pillar 184)</span>
+                    <span>Location: {activeIssue.latitude.toFixed(4)}° N, {activeIssue.longitude.toFixed(4)}° E ({activeIssue.ward_id})</span>
                   </div>
                 </div>
 
                 <div className="text-right">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Job Progress</span>
-                  <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase mt-0.5 ${
-                    activeJob.workOrder.status === 'completed'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : activeJob.workOrder.status === 'in_progress'
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                  }`}>
-                    {activeJob.workOrder.status}
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Workflow State</span>
+                  <span
+                    className={`inline-block px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider mt-0.5 border ${
+                      activeIssue.status === 'resolved'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : activeIssue.status === 'rework_required'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        : activeIssue.status === 'awaiting_inspection'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                        : activeIssue.status === 'in_progress'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                    }`}
+                  >
+                    {activeIssue.status.replace('_', ' ')}
                   </span>
                 </div>
               </div>
+
+              {/* Rework Alert Banner (If Engineer rejected work) */}
+              {activeIssue.status === 'rework_required' && (
+                <div className="bg-rose-950/40 border-2 border-rose-500/50 rounded-xl p-4 space-y-1.5 text-xs text-rose-200 shadow-lg animate-pulse">
+                  <div className="flex items-center gap-2 font-black uppercase text-rose-300 tracking-wider">
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    Chief Engineer Rework Required
+                  </div>
+                  <p className="font-medium text-slate-200">
+                    {activeIssue.engineer_remarks || 'Inspection rejected. Please re-level the surface and clear debris.'}
+                  </p>
+                  <span className="text-[10px] text-slate-400 block pt-1">
+                    Execute corrective repairs, take a new completion photo, and re-submit for engineering verification below.
+                  </span>
+                </div>
+              )}
 
               {/* Citizen Incident Photo & AI Geometry Specs */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                 {/* Photo (5 cols) */}
                 <div className="md:col-span-5 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 h-44 relative">
                   <img
-                    src={activeJob.issue?.photo_url || 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80'}
-                    alt="Problem evidence"
+                    src={activeIssue.photo_url || 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80'}
+                    alt="Citizen problem photo"
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute bottom-2 left-2 right-2 bg-slate-950/80 backdrop-blur-sm p-1.5 rounded-lg text-[10px] text-slate-300 flex items-center justify-between">
-                    <span>Evidence Photo</span>
-                    <span className="text-emerald-400 font-bold">AI Verified</span>
+                    <span>Citizen Photo (Before)</span>
+                    <span className="text-emerald-400 font-bold">Verified</span>
                   </div>
                 </div>
 
                 {/* AI Geometry & Sizing (7 cols) */}
                 <div className="md:col-span-7 bg-[#0e1935] p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between">
                   <div className="text-xs font-bold uppercase tracking-wider text-[#2dd4bf] mb-2 flex items-center gap-1.5">
-                    <Compass className="w-3.5 h-3.5" /> Defect Geometry for Crew
+                    <Compass className="w-3.5 h-3.5" /> Defect Geometry &amp; Field Specs
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-                      <span className="text-[10px] text-slate-400">{activeJob.diagnostic.geometry.stat1.label}</span>
-                      <div className="font-bold text-white mt-0.5">{activeJob.diagnostic.geometry.stat1.value}</div>
+                      <span className="text-[10px] text-slate-400">{diagnostic.geometry.stat1.label}</span>
+                      <div className="font-bold text-white mt-0.5">{diagnostic.geometry.stat1.value}</div>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-                      <span className="text-[10px] text-slate-400">{activeJob.diagnostic.geometry.stat2.label}</span>
-                      <div className="font-bold text-[#f87171] mt-0.5">{activeJob.diagnostic.geometry.stat2.value}</div>
+                      <span className="text-[10px] text-slate-400">{diagnostic.geometry.stat2.label}</span>
+                      <div className="font-bold text-[#f87171] mt-0.5">{diagnostic.geometry.stat2.value}</div>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-                      <span className="text-[10px] text-slate-400">{activeJob.diagnostic.geometry.stat3.label}</span>
-                      <div className="font-bold text-white mt-0.5">{activeJob.diagnostic.geometry.stat3.value}</div>
+                      <span className="text-[10px] text-slate-400">Approved Budget</span>
+                      <div className="font-bold text-[#2dd4bf] mt-0.5">₹ {activeIssue.approved_budget || diagnostic.estimate.inr}</div>
                     </div>
                     <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800">
-                      <span className="text-[10px] text-slate-400">{activeJob.diagnostic.geometry.stat4.label}</span>
-                      <div className="font-bold text-white mt-0.5">{activeJob.diagnostic.geometry.stat4.value}</div>
+                      <span className="text-[10px] text-slate-400">Target SLA</span>
+                      <div className="font-bold text-white mt-0.5">{diagnostic.estimate.workWindow}</div>
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/30 mt-2">
-                    {activeJob.diagnostic.geometry.warningText}
+                  <div className="text-[11px] text-slate-300 bg-slate-950/80 p-2 rounded-lg border border-slate-800 mt-2">
+                    {activeIssue.description}
                   </div>
                 </div>
               </div>
 
-              {/* Equipment & Tool Checklist Needed for this Problem */}
-              <div className="bg-[#0e1935] p-4 rounded-xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
-                    <Wrench className="w-3.5 h-3.5 text-amber-400" />
-                    Required Equipment & Materials Checklist
-                  </h4>
-                  <span className="text-[10px] text-emerald-400 font-bold">Standard IRC SOP</span>
-                </div>
+              {/* Stage 1 Action: If Status is "Assigned" -> Accept Task Button */}
+              {activeIssue.status === 'assigned' && (
+                <div className="bg-gradient-to-r from-purple-950/40 via-slate-950 to-purple-950/40 p-4 rounded-xl border border-purple-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                        ⚡ Step 1: Accept Assigned Task
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Confirm task receipt to notify Central Command and mark status as &quot;In Progress&quot;.
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {activeJob.diagnostic.bom.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2.5 p-2 bg-slate-950/70 rounded-lg border border-slate-800"
-                    >
+                  <button
+                    type="button"
+                    onClick={() => handleAccept(activeIssue.id)}
+                    disabled={isUpdating}
+                    className="w-full py-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    Accept Task &amp; Mark In Progress (Arrive On Site)
+                  </button>
+                </div>
+              )}
+
+              {/* Stage 2 Action: If Status is "In Progress" or "Rework Required" -> Upload After-Photo and Submit for Inspection */}
+              {(activeIssue.status === 'in_progress' || activeIssue.status === 'rework_required') && (
+                <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 p-5 rounded-xl border border-amber-500/40 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-amber-400" />
+                      Step 2: Submit Completed Work for Engineering Inspection
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Upload photographic proof of completed repairs and provide technical work notes for the Chief Engineer.
+                    </p>
+                  </div>
+
+                  {/* Completion Photo Upload / URL */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                      Completion Photo (After Repair):
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 cursor-pointer flex items-center gap-2 transition-all">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{isUploadingPhoto ? 'Uploading...' : 'Upload After-Photo'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                        />
+                      </label>
                       <input
-                        type="checkbox"
-                        defaultChecked
-                        className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                        type="text"
+                        value={afterPhotoUrl}
+                        onChange={(e) => setAfterPhotoUrl(e.target.value)}
+                        placeholder="Or paste photo URL..."
+                        className="flex-1 bg-slate-900 border border-slate-700 text-slate-200 text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-amber-500 font-mono"
                       />
-                      <div className="truncate">
-                        <span className="text-slate-200 font-medium block truncate">{item.description}</span>
-                        <span className="text-[10px] text-slate-400">{item.quantityDuration} ({item.category})</span>
+                    </div>
+
+                    {afterPhotoUrl && (
+                      <div className="h-32 w-full rounded-xl overflow-hidden border border-emerald-500/40 bg-black relative mt-2">
+                        <img
+                          src={afterPhotoUrl}
+                          alt="After-repair preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <span className="absolute bottom-2 left-2 bg-slate-950/80 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-400">
+                          ✓ Repair After-Photo Ready
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Work Notes */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                      Field Execution Notes for Quality Inspection:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={crewNotes}
+                      onChange={(e) => setCrewNotes(e.target.value)}
+                      placeholder="Describe materials used, depth of cut, compaction method, etc."
+                      className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs p-2.5 rounded-xl focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitForInspection(activeIssue.id)}
+                    disabled={isUpdating || isUploadingPhoto}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isUpdating ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    🚀 Submit Task for Engineering Quality Inspection
+                  </button>
+                </div>
+              )}
+
+              {/* Stage 3 Action: If Status is "Awaiting Inspection" */}
+              {activeIssue.status === 'awaiting_inspection' && (
+                <div className="bg-cyan-950/30 border border-cyan-500/40 rounded-xl p-4 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-cyan-300">
+                    <Clock className="w-4 h-4 text-cyan-400" />
+                    Awaiting Engineering Inspection &amp; Certification
+                  </div>
+                  <p className="text-slate-300">
+                    Field repairs have been completed and submitted. The Chief Municipal Engineer will compare before/after photos and certify compliance.
+                  </p>
+                  {activeIssue.after_photo_url && (
+                    <div className="pt-2">
+                      <span className="text-[10px] font-bold text-slate-400 block mb-1">Submitted After-Photo:</span>
+                      <div className="h-28 rounded-lg overflow-hidden border border-cyan-500/30 w-48 bg-black">
+                        <img src={activeIssue.after_photo_url} alt="After photo" className="w-full h-full object-cover" />
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              )}
 
-              {/* Real-time Field Action Stepper */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-                <span className="text-xs font-bold text-slate-300 block">
-                  Update Live Problem Execution State:
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateStatus('dispatched')}
-                    disabled={isUpdating}
-                    className="py-3 px-3 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
-                  >
-                    <Truck className="w-4 h-4 text-sky-400" />
-                    1. En Route (Leaving Depot)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateStatus('in_progress')}
-                    disabled={isUpdating}
-                    className="py-3 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
-                  >
-                    <Wrench className="w-4 h-4 text-amber-400" />
-                    2. Arrived On-Site (Working)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateStatus('completed')}
-                    disabled={isUpdating}
-                    className="py-3 px-3 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
-                  >
+              {/* Stage 4: If Status is "Resolved" */}
+              {activeIssue.status === 'resolved' && (
+                <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-1.5 text-xs text-emerald-300">
+                  <div className="flex items-center gap-2 font-bold text-emerald-400">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    3. Mark Completed (Proof)
-                  </button>
+                    Work Order Certified &amp; Completed!
+                  </div>
+                  <p className="text-slate-300">
+                    {activeIssue.engineer_remarks || 'Work certified compliant by Municipal Chief Engineer.'}
+                  </p>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500 text-xs">

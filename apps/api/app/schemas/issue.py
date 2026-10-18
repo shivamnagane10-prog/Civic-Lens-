@@ -2,6 +2,9 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Literal
 from datetime import datetime
 
+from typing import Optional, List, Dict, Any
+from app.schemas.status_event import StatusEventResponse
+
 class DiagnosticCardSchema(BaseModel):
     severity: str
     cost_estimate: str
@@ -23,10 +26,18 @@ class IssueCreate(BaseModel):
     source: Optional[str] = "citizen"
 
 class IssueStatusUpdate(BaseModel):
-    status: Literal["reported", "acknowledged", "in_progress", "resolved", "rejected"]
+    status: str  # submitted, reported, acknowledged, assigned, in_progress, awaiting_inspection, rework_required, resolved, rejected
     comment: Optional[str] = None
     actor_id: Optional[str] = None
     actor_role: Optional[str] = "official"
+    assigned_crew_id: Optional[str] = None
+    approved_budget: Optional[str] = None
+    after_photo_url: Optional[str] = None
+    crew_notes: Optional[str] = None
+    engineer_remarks: Optional[str] = None
+    inspection_checklist: Optional[Dict[str, Any]] = None
+    priority_score: Optional[float] = None
+    severity: Optional[str] = None
 
 class IssueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -43,9 +54,16 @@ class IssueResponse(BaseModel):
     longitude: float
     ward_id: str
     photo_url: Optional[str] = None
+    after_photo_url: Optional[str] = None
+    crew_notes: Optional[str] = None
+    engineer_remarks: Optional[str] = None
+    approved_budget: Optional[str] = None
+    assigned_crew_id: Optional[str] = None
+    inspection_checklist: Optional[Dict[str, Any]] = None
     ai_confidence: float
     source: str
     priority_score: float
     diagnostic_card: Optional[DiagnosticCardSchema] = None
     created_at: datetime
     resolved_at: Optional[datetime] = None
+    events: Optional[List[StatusEventResponse]] = None
