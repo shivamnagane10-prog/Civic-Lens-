@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, CameraStatus, CctvDetection } from '@civiclens/shared-types';
 import { api } from '../lib/api/client';
+import { CctvVideoPlayer } from './CctvVideoPlayer';
 import {
   Camera as CameraIcon,
   Video,
@@ -404,82 +405,16 @@ export function CctvMonitoring({ onSelectIncident, onOpenRecordings }: CctvMonit
               {/* Video Player Canvas */}
               <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
                 {selectedCamera ? (
-                  <video
-                    ref={mainVideoRef}
-                    key={selectedCamera.stream_url}
-                    src={selectedCamera.stream_url}
-                    autoPlay
-                    loop
-                    muted={isMuted}
-                    playsInline
-                    className="w-full h-full object-contain"
+                  <CctvVideoPlayer
+                    camera={selectedCamera}
+                    isFocused={true}
+                    showControls={true}
                   />
                 ) : (
                   <div className="text-slate-500 text-xs">No camera selected</div>
                 )}
-
-                {/* Overlaid Edge AI HUD */}
-                <div className="absolute top-3 left-3 pointer-events-none flex flex-col gap-1.5 font-mono text-[10px]">
-                  <div className="bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-800 text-sky-400 flex items-center gap-2">
-                    <Activity className="w-3 h-3 text-emerald-400 animate-pulse" />
-                    <span>EDGE-AI: CONTINUOUS SPATIAL MONITORING</span>
-                  </div>
-                  <div className="bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-800 text-slate-300">
-                    LAT/LON: {selectedCamera?.latitude.toFixed(4)}, {selectedCamera?.longitude.toFixed(4)}
-                  </div>
-                </div>
-
-                {/* Overlaid Incident Banner if active */}
-                {selectedCamera?.status === 'incident_detected' && (
-                  <div className="absolute top-3 right-3 bg-rose-950/90 border border-rose-500/80 text-rose-200 px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-2 text-xs font-semibold animate-pulse">
-                    <AlertTriangle className="w-4 h-4 text-rose-400" />
-                    <span>ACTIVE ANOMALY DETECTED IN SECTOR</span>
-                  </div>
-                )}
-
-                {/* Custom Overlay Controls */}
-                <div className="absolute bottom-3 left-3 right-3 bg-slate-950/85 backdrop-blur-md border border-slate-800/80 rounded-xl px-4 py-2 flex items-center justify-between text-white">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleTogglePlay}
-                      className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all"
-                      title={isPlaying ? 'Pause' : 'Play'}
-                    >
-                      {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                    </button>
-                    <button
-                      onClick={handleToggleMute}
-                      className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all"
-                      title={isMuted ? 'Unmute' : 'Mute'}
-                    >
-                      {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                    </button>
-                    <div className="h-4 w-px bg-slate-800 mx-1" />
-                    <span className="text-xs font-mono text-slate-400 truncate max-w-[200px] sm:max-w-xs">
-                      {selectedCamera?.location_name}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {onOpenRecordings && selectedCamera && (
-                      <button
-                        onClick={() => onOpenRecordings(selectedCamera.id)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-all"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-sky-400" />
-                        Footage Timeline
-                      </button>
-                    )}
-                    <button
-                      onClick={handleFullscreen}
-                      className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-all"
-                      title="Fullscreen"
-                    >
-                      <Maximize2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
               </div>
+
 
               {/* Bottom Inspection & Metadata Panel */}
               {selectedCamera && (
@@ -527,45 +462,23 @@ export function CctvMonitoring({ onSelectIncident, onOpenRecordings }: CctvMonit
                 return (
                   <div
                     key={cam.id}
-                    onClick={() => {
-                      setSelectedCamera(cam);
-                      setGridMode('single');
-                    }}
-                    className={`relative rounded-xl overflow-hidden bg-black border cursor-pointer group transition-all ${
+                    className={`relative rounded-xl overflow-hidden bg-black border transition-all ${
                       isFocused ? 'border-sky-500 ring-2 ring-sky-500/30' : 'border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <video
-                      src={cam.stream_url}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
+                    <CctvVideoPlayer
+                      camera={cam}
+                      showControls={false}
+                      onOpenFocus={() => {
+                        setSelectedCamera(cam);
+                        setGridMode('single');
+                      }}
                     />
-
-                    {/* Camera Title Overlay */}
-                    <div className="absolute top-2 left-2 right-2 flex items-center justify-between text-[11px] font-mono">
-                      <span className="bg-slate-950/85 backdrop-blur-md px-2 py-0.5 rounded text-white font-semibold truncate max-w-[150px]">
-                        {cam.name}
-                      </span>
-                      {getStatusBadge(cam.status)}
-                    </div>
-
-                    {/* Hover Click to Focus */}
-                    <div className="absolute inset-0 bg-sky-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <span className="px-3 py-1.5 rounded-lg bg-sky-600/90 text-white text-xs font-semibold shadow-lg backdrop-blur-md flex items-center gap-1.5">
-                        <Eye className="w-3.5 h-3.5" /> Open Focus
-                      </span>
-                    </div>
-
-                    <div className="absolute bottom-2 left-2 text-[10px] font-mono text-slate-300 bg-slate-950/80 px-2 py-0.5 rounded">
-                      {cam.location_name}
-                    </div>
                   </div>
                 );
               })}
             </div>
+
           )}
 
           {/* AI Scan Result Callout if newly triggered */}

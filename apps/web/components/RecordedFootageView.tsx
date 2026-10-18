@@ -34,6 +34,15 @@ interface RecordedFootageViewProps {
   onOpenIncidentTriage?: (detection: CctvDetection) => void;
 }
 
+const CAMERA_POSTERS: Record<string, string> = {
+  'CAM-DL-101': 'https://images.unsplash.com/photo-1587474260584-136574528ed5?auto=format&fit=crop&w=1200&q=80',
+  'CAM-DL-102': 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1200&q=80',
+  'CAM-MH-201': 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=1200&q=80',
+  'CAM-MH-202': 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?auto=format&fit=crop&w=1200&q=80',
+  'CAM-KA-301': 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?auto=format&fit=crop&w=1200&q=80',
+  'CAM-MH-401': 'https://images.unsplash.com/photo-1517649763962-0c623266ddc0?auto=format&fit=crop&w=1200&q=80',
+};
+
 export function RecordedFootageView({
   initialCameraId,
   initialSeekSeconds,
@@ -45,13 +54,15 @@ export function RecordedFootageView({
   const [selectedRecording, setSelectedRecording] = useState<RecordingSegment | null>(null);
   const [detections, setDetections] = useState<CctvDetection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [videoError, setVideoError] = useState(false);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [currentSeconds, setCurrentSeconds] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+
 
   // Demo Upload State
   const [isUploading, setIsUploading] = useState(false);
@@ -294,18 +305,43 @@ export function RecordedFootageView({
             </div>
 
             {/* Video Canvas */}
-            <div className="relative aspect-video bg-black flex items-center justify-center">
+            <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
               {selectedRecording ? (
-                <video
-                  ref={videoRef}
-                  key={selectedRecording.video_url}
-                  src={selectedRecording.video_url}
-                  onTimeUpdate={handleTimeUpdate}
-                  onLoadedMetadata={handleTimeUpdate}
-                  muted={isMuted}
-                  playsInline
-                  className="w-full h-full object-contain"
-                />
+                <>
+                  <video
+                    ref={videoRef}
+                    key={selectedRecording.video_url}
+                    src={selectedRecording.video_url}
+                    onTimeUpdate={handleTimeUpdate}
+                    onLoadedMetadata={handleTimeUpdate}
+                    onLoadedData={() => setVideoError(false)}
+                    onError={() => setVideoError(true)}
+                    poster={CAMERA_POSTERS[selectedCameraId] || selectedRecording.thumbnail_url}
+                    muted={isMuted}
+                    playsInline
+                    className={`w-full h-full object-contain ${videoError ? 'hidden' : 'block'}`}
+                  />
+
+                  {videoError && (
+                    <div className="absolute inset-0 w-full h-full">
+                      <img
+                        src={CAMERA_POSTERS[selectedCameraId] || selectedRecording.thumbnail_url || 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80'}
+                        alt="Recorded Scene"
+                        className="w-full h-full object-cover filter brightness-90 contrast-110"
+                      />
+                      <div
+                        className="absolute inset-0 pointer-events-none opacity-20"
+                        style={{
+                          backgroundImage:
+                            'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.8) 3px, rgba(0, 0, 0, 0.8) 4px)',
+                        }}
+                      />
+                      <div className="absolute top-3 right-3 bg-slate-950/80 px-2.5 py-1 rounded-md border border-slate-800 text-[10px] font-mono text-sky-400">
+                        OPTICAL FOOTAGE ARCHIVE
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-slate-500 text-xs">No recording segment found for this camera.</div>
               )}
@@ -317,6 +353,7 @@ export function RecordedFootageView({
                 </div>
               )}
             </div>
+
 
             {/* Interactive Timeline Bar with AI Incident Markers */}
             <div className="bg-slate-950 p-4 border-t border-slate-800 space-y-3">
