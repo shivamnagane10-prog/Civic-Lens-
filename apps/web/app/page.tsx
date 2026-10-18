@@ -14,6 +14,9 @@ import { CorporatorPortal } from '../components/CorporatorPortal';
 import { PublicWardView } from '../components/PublicWardView';
 import { CrewTrackerModal } from '../components/CrewTrackerModal';
 import { MobileAppView } from '../components/MobileAppView';
+import { CctvMonitoring } from '../components/CctvMonitoring';
+import { RecordedFootageView } from '../components/RecordedFootageView';
+import { AiIncidentCenter } from '../components/AiIncidentCenter';
 import {
   Shield,
   Layers,
@@ -29,11 +32,17 @@ import {
   Wrench,
   Truck,
   Landmark,
-  MapPin
+  MapPin,
+  Video,
+  Film,
+  ShieldAlert
 } from 'lucide-react';
 
+
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors'>('corporator');
+  const [activeTab, setActiveTab] = useState<
+    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents'
+  >('corporator');
   const [currentRole, setCurrentRole] = useState<UserRole>('admin');
   const [wards, setWards] = useState<Ward[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -44,6 +53,28 @@ export default function Home() {
   const [crewSuggestions, setCrewSuggestions] = useState<CrewSuggestion[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [liveBanner, setLiveBanner] = useState<string | null>(null);
+
+  // CCTV Navigation & Playback State
+  const [selectedCctvCameraId, setSelectedCctvCameraId] = useState<string | undefined>(undefined);
+  const [seekFootageSeconds, setSeekFootageSeconds] = useState<number | undefined>(undefined);
+
+  const handleWatchIncident = (cameraId: string, seekSeconds: number) => {
+    setSelectedCctvCameraId(cameraId);
+    setSeekFootageSeconds(seekSeconds);
+    setActiveTab('footage');
+  };
+
+  const handleWatchLive = (cameraId: string) => {
+    setSelectedCctvCameraId(cameraId);
+    setActiveTab('cctv');
+  };
+
+  const handleOpenRecordings = (cameraId: string) => {
+    setSelectedCctvCameraId(cameraId);
+    setSeekFootageSeconds(undefined);
+    setActiveTab('footage');
+  };
+
 
   // Synchronize activeTab whenever role dropdown is changed
   const handleRoleChange = (role: UserRole) => {
@@ -557,7 +588,41 @@ export default function Home() {
             >
               <Activity className="w-3.5 h-3.5" /> Sensors
             </button>
+
+            <button
+              onClick={() => setActiveTab('cctv')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTab === 'cctv'
+                  ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Video className="w-3.5 h-3.5 text-sky-400" /> CCTV Surveillance
+            </button>
+
+            <button
+              onClick={() => setActiveTab('footage')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTab === 'footage'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5 text-indigo-300" /> Recorded Footage
+            </button>
+
+            <button
+              onClick={() => setActiveTab('ai_incidents')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTab === 'ai_incidents'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" /> AI Incident Center
+            </button>
           </div>
+
 
           {/* Role Switcher & Live WS Indicator */}
           <div className="flex items-center gap-3">
@@ -779,7 +844,42 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* 8. CCTV Live Monitoring & Surveillance Dashboard */}
+        {activeTab === 'cctv' && (
+          <CctvMonitoring
+            onOpenRecordings={handleOpenRecordings}
+            onSelectIncident={(det) => {
+              handleWatchIncident(det.camera_id, det.timestamp_offset_seconds);
+            }}
+          />
+        )}
+
+        {/* 9. Recorded Footage & Video Playback */}
+        {activeTab === 'footage' && (
+          <RecordedFootageView
+            initialCameraId={selectedCctvCameraId}
+            initialSeekSeconds={seekFootageSeconds}
+            onOpenIncidentTriage={() => {
+              setActiveTab('ai_incidents');
+            }}
+          />
+        )}
+
+        {/* 10. AI Incident Queue & Public Safety Response Center */}
+        {activeTab === 'ai_incidents' && (
+          <AiIncidentCenter
+            onWatchIncident={handleWatchIncident}
+            onWatchLive={handleWatchLive}
+            onComplaintCreated={async (res) => {
+              await loadData();
+              setLiveBanner(`🚨 CCTV Detection promoted to Civic Complaint #${res.issue_id}! Switched to Corporator queue.`);
+              setActiveTab('corporator');
+            }}
+          />
+        )}
       </main>
+
     </div>
   );
 }

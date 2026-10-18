@@ -4,6 +4,7 @@ from app.models.issue import IssueModel
 from app.models.work_order import WorkOrderModel
 from app.models.crew import CrewModel
 from app.models.status_event import StatusEventModel
+from app.models.cctv import CameraModel, RecordingModel, CctvDetectionModel, IncidentReportModel
 
 __all__ = [
     "UserModel",
@@ -12,4 +13,9 @@ __all__ = [
     "WorkOrderModel",
     "CrewModel",
     "StatusEventModel",
+    "CameraModel",
+    "RecordingModel",
+    "CctvDetectionModel",
+    "IncidentReportModel",
 ]
+

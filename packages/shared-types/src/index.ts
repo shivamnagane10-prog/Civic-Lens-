@@ -202,4 +202,143 @@ export interface WebSocketMessage<T = any> {
   timestamp: string;
 }
 
+// ==========================================
+// CCTV & AI Public Safety Surveillance Types
+// ==========================================
+
+export type CameraStatus = 'online' | 'offline' | 'incident_detected' | 'maintenance';
+export type CameraStreamType = 'hls' | 'webrtc' | 'mp4' | 'demo';
+
+export interface CameraCapabilities {
+  live: boolean;
+  recording: boolean;
+  ptz: boolean;
+  night_vision: boolean;
+  ai_enabled: boolean;
+}
+
+export interface Camera {
+  id: string;
+  name: string;
+  code: string;
+  location_name: string;
+  ward_id: string;
+  ward_name?: string;
+  latitude: number;
+  longitude: number;
+  stream_url: string;
+  stream_type: CameraStreamType;
+  status: CameraStatus;
+  capabilities: CameraCapabilities;
+  last_ping: string;
+  resolution: string;
+  fps: number;
+  is_demo: boolean;
+  active_incidents_count?: number;
+  recordings_count?: number;
+}
+
+export interface RecordingSegment {
+  id: string;
+  camera_id: string;
+  start_time: string;
+  end_time: string;
+  duration_seconds: number;
+  video_url: string;
+  thumbnail_url: string;
+  file_size_mb: number;
+  is_demo: boolean;
+  created_at: string;
+}
+
+export type DetectionCategory = 'civic_infrastructure' | 'public_safety';
+
+export type DetectionEventType =
+  | 'pothole'
+  | 'garbage'
+  | 'waterlogging'
+  | 'fallen_tree'
+  | 'road_damage'
+  | 'traffic_accident'
+  | 'potential_assault'
+  | 'potential_forced_movement'
+  | 'potential_harassment'
+  | 'potential_sexual_violence_indicator'
+  | 'medical_collapse'
+  | 'crowd_surge';
+
+export type DetectionReviewStatus = 'pending_review' | 'verified' | 'inconclusive' | 'false_positive';
+
+export interface CctvDetection {
+  id: string;
+  camera_id: string;
+  camera_name: string;
+  location_name: string;
+  ward_id: string;
+  recording_id?: string | null;
+  category: DetectionCategory;
+  event_type: DetectionEventType;
+  confidence: number;
+  timestamp_offset_seconds: number;
+  incident_time: string;
+  snapshot_url: string;
+  video_url?: string | null;
+  description: string;
+  observable_indicators: string[];
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  review_status: DetectionReviewStatus;
+  reviewer_id?: string | null;
+  reviewer_notes?: string | null;
+  reviewed_at?: string | null;
+  complaint_id?: string | null;
+  incident_report_id?: string | null;
+  created_at: string;
+}
+
+export type EscalationAgency =
+  | 'police_112'
+  | 'mrrt'
+  | 'traffic_police'
+  | 'fire_rescue'
+  | 'women_safety_1091'
+  | 'ambulance_108';
+
+export type EscalationStatus =
+  | 'draft'
+  | 'dispatched'
+  | 'acknowledged'
+  | 'unit_en_route'
+  | 'on_scene'
+  | 'resolved';
+
+export interface IncidentReport {
+  id: string;
+  detection_id: string;
+  camera_id: string;
+  camera_name: string;
+  location_text: string;
+  latitude: number;
+  longitude: number;
+  ward_id: string;
+  category: DetectionCategory;
+  event_type: DetectionEventType;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  incident_timestamp: string;
+  summary: string;
+  observable_indicators: string[];
+  snapshot_url: string;
+  video_url?: string | null;
+  video_timestamp_seconds: number;
+  reviewer_id: string;
+  reviewer_name: string;
+  review_decision: DetectionReviewStatus;
+  reviewer_notes?: string | null;
+  escalation_channel?: EscalationAgency | null;
+  escalation_status: EscalationStatus;
+  agency_reference_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+
 

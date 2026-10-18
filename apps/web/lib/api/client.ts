@@ -12,8 +12,15 @@ import {
   WorkOrder,
   CrewSuggestion,
   User,
-  TokenResponse
+  TokenResponse,
+  Camera,
+  RecordingSegment,
+  CctvDetection,
+  IncidentReport,
+  DetectionReviewStatus,
+  EscalationAgency
 } from '@civiclens/shared-types';
+
 
 export function getApiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -235,6 +242,155 @@ export class ApiClient {
     }
     return response.json();
   }
+
+  // ==========================================
+  // CCTV & AI Incident Response Methods
+  // ==========================================
+
+  async getCctvCameras(params?: { ward_id?: string; status?: string; q?: string }): Promise<Camera[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.ward_id) searchParams.append('ward_id', params.ward_id);
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.q) searchParams.append('q', params.q);
+    const qs = searchParams.toString();
+    return this.request<Camera[]>(`/cctv/cameras${qs ? `?${qs}` : ''}`);
+  }
+
+  async getCctvCamera(id: string): Promise<Camera> {
+    return this.request<Camera>(`/cctv/cameras/${id}`);
+  }
+
+  async getCctvRecordings(cameraId: string, limit = 50): Promise<RecordingSegment[]> {
+    return this.request<RecordingSegment[]>(`/cctv/cameras/${cameraId}/recordings?limit=${limit}`);
+  }
+
+  async uploadDemoRecording(cameraId: string, file: File, durationSeconds = 120): Promise<RecordingSegment> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('duration_seconds', durationSeconds.toString());
+
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${getApiBase()}/cctv/cameras/${cameraId}/recordings/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to upload demo recording' }));
+      throw new Error(err.detail || 'Demo recording upload failed');
+    }
+    return response.json();
+  }
+
+  async getCctvDetections(params?: {
+    category?: string;
+    event_type?: string;
+    review_status?: string;
+    priority?: string;
+    camera_id?: string;
+  }): Promise<CctvDetection[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.category) searchParams.append('category', params.category);
+    if (params?.event_type) searchParams.append('event_type', params.event_type);
+    if (params?.review_status) searchParams.append('review_status', params.review_status);
+    if (params?.priority) searchParams.append('priority', params.priority);
+    if (params?.camera_id) searchParams.append('camera_id', params.camera_id);
+    const qs = searchParams.toString();
+    return this.request<CctvDetection[]>(`/cctv/detections${qs ? `?${qs}` : ''}`);
+  }
+
+  async getCctvDetection(id: string): Promise<CctvDetection> {
+    return this.request<CctvDetection>(`/cctv/detections/${id}`);
+  }
+
+  async reviewCctvDetection(
+    id: string,
+    reviewStatus: DetectionReviewStatus,
+    notes?: string,
+    reviewerId?: string
+  ): Promise<CctvDetection> {
+    return this.request<CctvDetection>(`/cctv/detections/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({
+        review_status: reviewStatus,
+        reviewer_notes: notes,
+        reviewer_id: reviewerId || 'USER-ADMIN',
+      }),
+    });
+  }
+
+  async createComplaintFromDetection(
+    detectionId: string,
+    payload?: { title?: string; description?: string; ward_id?: string; severity?: string }
+  ): Promise<{ message: string; issue_id: string; detection_id: string; status: string }> {
+    return this.request<{ message: string; issue_id: string; detection_id: string; status: string }>(
+      `/cctv/detections/${detectionId}/complaint-draft`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+      }
+    );
+  }
+
+  async createIncidentReport(
+    detectionId: string,
+    payload: { summary: string; priority?: string; escalation_channel?: string; reviewer_notes?: string }
+  ): Promise<IncidentReport> {
+    return this.request<IncidentReport>(`/cctv/detections/${detectionId}/incident-report`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getIncidentReports(params?: {
+    escalation_status?: string;
+    priority?: string;
+    category?: string;
+  }): Promise<IncidentReport[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.escalation_status) searchParams.append('escalation_status', params.escalation_status);
+    if (params?.priority) searchParams.append('priority', params.priority);
+    if (params?.category) searchParams.append('category', params.category);
+    const qs = searchParams.toString();
+    return this.request<IncidentReport[]>(`/cctv/incidents${qs ? `?${qs}` : ''}`);
+  }
+
+  async escalateIncidentReport(
+    id: string,
+    channel: string,
+    status = 'dispatched',
+    notes?: string,
+    agencyRef?: string
+  ): Promise<IncidentReport> {
+    return this.request<IncidentReport>(`/cctv/incidents/${id}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        escalation_channel: channel,
+        escalation_status: status,
+        notes,
+        agency_reference_id: agencyRef,
+      }),
+    });
+  }
+
+  async triggerAiVideoAnalysis(
+    cameraId: string,
+    recordingId?: string,
+    focus: 'all' | 'civic_infrastructure' | 'public_safety' = 'all'
+  ): Promise<{ status: string; message: string; detection: CctvDetection }> {
+    return this.request<{ status: string; message: string; detection: CctvDetection }>('/cctv/analyze', {
+      method: 'POST',
+      body: JSON.stringify({
+        camera_id: cameraId,
+        recording_id: recordingId,
+        analysis_focus: focus,
+      }),
+    });
+  }
 }
 
 export const api = new ApiClient();
+
