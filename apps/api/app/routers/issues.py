@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.issue import IssueModel
 from app.models.status_event import StatusEventModel
 from app.models.work_order import WorkOrderModel
+from app.models.crew import CrewModel
 from app.schemas.issue import IssueCreate, IssueResponse, IssueStatusUpdate
 from app.schemas.status_event import StatusEventResponse
 from app.services.auth_service import get_current_user_optional
