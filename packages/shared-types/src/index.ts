@@ -340,5 +340,48 @@ export interface IncidentReport {
   updated_at: string;
 }
 
+// ==========================================
+// UCF-Crime Surveillance Dataset Benchmark Types
+// ==========================================
+
+export interface UcfCrimeDatasetInfo {
+  name: string;
+  authors: string;
+  conference: string;
+  institution: string;
+  total_videos: number;
+  total_hours: number;
+  total_classes: number;
+  primary_download_url: string;
+  parts_download_url: string;
+  size_gb: number;
+  description: string;
+  classes: string[];
+  benchmark_clips_indexed: number;
+  available_categories: string[];
+}
+
+export interface UcfCrimeVideo {
+  id: string;
+  video_name: string;
+  ucf_category: string;
+  civiclens_category: DetectionCategory;
+  mapped_event_type: DetectionEventType;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  fps: number;
+  total_frames: number;
+  duration_seconds: number;
+  anomaly_start_frame: number;
+  anomaly_end_frame: number;
+  anomaly_start_seconds: number;
+  anomaly_end_seconds: number;
+  description: string;
+  observable_indicators: string[];
+  video_url: string;
+  poster_url: string;
+  recommended_escalation?: EscalationAgency | null;
+  location_context: string;
+}
+
 
 

@@ -17,6 +17,7 @@ import { MobileAppView } from '../components/MobileAppView';
 import { CctvMonitoring } from '../components/CctvMonitoring';
 import { RecordedFootageView } from '../components/RecordedFootageView';
 import { AiIncidentCenter } from '../components/AiIncidentCenter';
+import { UcfCrimeExplorer } from '../components/UcfCrimeExplorer';
 import {
   Shield,
   Layers,
@@ -35,13 +36,14 @@ import {
   MapPin,
   Video,
   Film,
-  ShieldAlert
+  ShieldAlert,
+  Database
 } from 'lucide-react';
 
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<
-    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents'
+    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents' | 'ucf_dataset'
   >('corporator');
   const [currentRole, setCurrentRole] = useState<UserRole>('admin');
   const [wards, setWards] = useState<Ward[]>([]);
@@ -621,6 +623,17 @@ export default function Home() {
             >
               <ShieldAlert className="w-3.5 h-3.5 text-rose-400" /> AI Incident Center
             </button>
+
+            <button
+              onClick={() => setActiveTab('ucf_dataset')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTab === 'ucf_dataset'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5 text-purple-300" /> UCF-Crime Dataset
+            </button>
           </div>
 
 
@@ -876,6 +889,14 @@ export default function Home() {
               setLiveBanner(`🚨 CCTV Detection promoted to Civic Complaint #${res.issue_id}! Switched to Corporator queue.`);
               setActiveTab('corporator');
             }}
+          />
+        )}
+
+        {/* 11. UCF-Crime Surveillance Anomaly Dataset Benchmark */}
+        {activeTab === 'ucf_dataset' && (
+          <UcfCrimeExplorer
+            onOpenIncidentTriage={() => setActiveTab('ai_incidents')}
+            onWatchInFootage={(camId, sec) => handleWatchIncident(camId, sec)}
           />
         )}
       </main>

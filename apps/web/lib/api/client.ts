@@ -18,7 +18,9 @@ import {
   CctvDetection,
   IncidentReport,
   DetectionReviewStatus,
-  EscalationAgency
+  EscalationAgency,
+  UcfCrimeDatasetInfo,
+  UcfCrimeVideo
 } from '@civiclens/shared-types';
 
 
@@ -390,7 +392,57 @@ export class ApiClient {
       }),
     });
   }
+
+  // ==========================================
+  // UCF-Crime Surveillance Dataset Benchmark
+  // ==========================================
+
+  async getUcfCrimeDatasetInfo(): Promise<UcfCrimeDatasetInfo> {
+    return this.request<UcfCrimeDatasetInfo>('/cctv/dataset/ucf-crime');
+  }
+
+  async getUcfCrimeVideos(category?: string, q?: string): Promise<UcfCrimeVideo[]> {
+    const searchParams = new URLSearchParams();
+    if (category) searchParams.append('category', category);
+    if (q) searchParams.append('q', q);
+    const qs = searchParams.toString();
+    return this.request<UcfCrimeVideo[]>(`/cctv/dataset/ucf-crime/videos${qs ? `?${qs}` : ''}`);
+  }
+
+  async importUcfCrimeVideo(
+    videoId: string,
+    cameraId: string
+  ): Promise<{ status: string; message: string; recording_id: string; detection?: CctvDetection }> {
+    return this.request<{ status: string; message: string; recording_id: string; detection?: CctvDetection }>(
+      `/cctv/dataset/ucf-crime/${videoId}/import-as-recording?camera_id=${cameraId}`,
+      { method: 'POST' }
+    );
+  }
+
+  async runUcfCrimeInference(videoId: string): Promise<{
+    status: string;
+    video_name: string;
+    ground_truth_class: string;
+    temporal_ground_truth: {
+      start_frame: number;
+      end_frame: number;
+      start_seconds: number;
+      end_seconds: number;
+    };
+    ai_prediction: {
+      event_type: string;
+      confidence: number;
+      detected_offset_seconds: number;
+      temporal_overlap_accuracy: string;
+    };
+    detection: CctvDetection;
+  }> {
+    return this.request(`/cctv/dataset/ucf-crime/${videoId}/run-inference`, {
+      method: 'POST',
+    });
+  }
 }
+
 
 export const api = new ApiClient();
 
