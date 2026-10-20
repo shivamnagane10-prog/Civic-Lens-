@@ -286,6 +286,10 @@ export interface CctvDetection {
   description: string;
   observable_indicators: string[];
   priority: 'critical' | 'high' | 'medium' | 'low';
+  ucf_reference_class?: string;
+  ucf_similarity_score?: number;
+  baseline_deviation_sigma?: string;
+  benchmark_citation?: string;
   review_status: DetectionReviewStatus;
   reviewer_id?: string | null;
   reviewer_notes?: string | null;

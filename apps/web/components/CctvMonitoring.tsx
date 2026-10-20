@@ -33,7 +33,8 @@ import {
   MapPin,
   ChevronRight,
   Flame,
-  Zap
+  Zap,
+  Database
 } from 'lucide-react';
 
 interface CctvMonitoringProps {
@@ -495,6 +496,10 @@ export function CctvMonitoring({ onSelectIncident, onOpenRecordings }: CctvMonit
                     <span className="text-xs font-bold text-white">AI Detection Generated:</span>
                     <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
                       {lastAnalysisResult.event_type.toUpperCase()}
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                      <Database className="w-2.5 h-2.5 text-purple-400" />
+                      UCF Ref: {lastAnalysisResult.ucf_reference_class || 'RoadAccidents'} ({lastAnalysisResult.baseline_deviation_sigma || '+3.8σ'})
                     </span>
                     <span className="text-[11px] text-emerald-400 font-mono">
                       {Math.round(lastAnalysisResult.confidence * 100)}% Confidence
