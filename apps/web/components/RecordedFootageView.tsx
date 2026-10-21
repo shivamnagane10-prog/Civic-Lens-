@@ -490,10 +490,6 @@ export function RecordedFootageView({
                             Offset: {det.timestamp_offset_seconds}s
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-1 text-[9px] font-mono text-purple-300">
-                          <Database className="w-2.5 h-2.5 text-purple-400" />
-                          <span>UCF: <strong>{det.ucf_reference_class || 'RoadAccidents'}</strong> ({det.baseline_deviation_sigma || '+3.8σ'})</span>
-                        </div>
                         <p className="text-[11px] text-slate-300 mt-1 line-clamp-1">{det.description}</p>
                         <div className="mt-2 flex items-center gap-2">
                           <button

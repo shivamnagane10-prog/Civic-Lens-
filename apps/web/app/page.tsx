@@ -17,7 +17,7 @@ import { MobileAppView } from '../components/MobileAppView';
 import { CctvMonitoring } from '../components/CctvMonitoring';
 import { RecordedFootageView } from '../components/RecordedFootageView';
 import { AiIncidentCenter } from '../components/AiIncidentCenter';
-import { UcfCrimeExplorer } from '../components/UcfCrimeExplorer';
+import { SatelliteMultispectralDashboard } from '../components/SatelliteMultispectralDashboard';
 import {
   Shield,
   Layers,
@@ -43,7 +43,7 @@ import {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<
-    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents' | 'ucf_dataset'
+    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents' | 'satellite'
   >('corporator');
   const [currentRole, setCurrentRole] = useState<UserRole>('admin');
   const [wards, setWards] = useState<Ward[]>([]);
@@ -625,14 +625,14 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => setActiveTab('ucf_dataset')}
+              onClick={() => setActiveTab('satellite')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'ucf_dataset'
+                activeTab === 'satellite'
                   ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Database className="w-3.5 h-3.5 text-purple-300" /> UCF-Crime Dataset
+              <Globe className="w-3.5 h-3.5 text-purple-300" /> Satellite Multispectral
             </button>
           </div>
 
@@ -838,19 +838,28 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 flex flex-col justify-between">
+              <div className="bg-slate-950 p-4 rounded-xl border border-purple-500/40 shadow-lg shadow-purple-950/20 space-y-3 flex flex-col justify-between">
                 <div>
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-purple-400" /> Satellite Multispectral
+                  <div className="text-sm font-bold text-white flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-purple-400" /> Satellite Multispectral
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/30">
+                      0.5m GSD
+                    </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Simulates satellite optical pass detecting asphalt subsidence and damage.
+                    Multi-orbit optical change detection, macroscopic subsidence mapping, and automated CCTV-free gap analysis.
                   </p>
                 </div>
                 <button
-                  onClick={() => handleSimulateSensorDetection('satellite')}
-                  className="w-full py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition-all"
+                  onClick={() => {
+                    setActiveTab('satellite');
+                    setLiveBanner('🛰️ Satellite Multispectral Dashboard launched: Inspecting CCTV-free gaps & Sentinel-2 optical telemetry.');
+                  }}
+                  className="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-purple-600/30 flex items-center justify-center gap-1.5"
                 >
+                  <Globe className="w-3.5 h-3.5" />
                   Fire Satellite Detection
                 </button>
               </div>
@@ -892,11 +901,23 @@ export default function Home() {
           />
         )}
 
-        {/* 11. UCF-Crime Surveillance Anomaly Dataset Benchmark */}
-        {activeTab === 'ucf_dataset' && (
-          <UcfCrimeExplorer
+        {/* 11. Satellite Multispectral — CCTV-Free Area Detection & Satellite Monitoring */}
+        {activeTab === 'satellite' && (
+          <SatelliteMultispectralDashboard
+            onOpenCctvFeed={(camId) => {
+              setSelectedCctvCameraId(camId);
+              setActiveTab('cctv');
+            }}
+            onOpenRecordings={(camId) => {
+              setSelectedCctvCameraId(camId);
+              setActiveTab('footage');
+            }}
             onOpenIncidentTriage={() => setActiveTab('ai_incidents')}
-            onWatchInFootage={(camId, sec) => handleWatchIncident(camId, sec)}
+            onComplaintCreated={async (res) => {
+              await loadData();
+              setLiveBanner(`🛰️ Satellite Finding promoted to Civic Complaint #${res.issue_id}! Switched to Corporator queue.`);
+              setActiveTab('corporator');
+            }}
           />
         )}
       </main>

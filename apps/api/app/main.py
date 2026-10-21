@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import engine, Base, SessionLocal
 from app.seed import seed_database
-from app.routers import auth, issues, wards, work_orders, crews, websocket, internal, upload, ml_router, cctv
+from app.routers import auth, issues, wards, work_orders, crews, websocket, internal, upload, ml_router, cctv, satellite
 
 
 # Ensure tables and seed data exist
@@ -55,6 +55,7 @@ app.include_router(internal.router, prefix=settings.API_PREFIX)
 app.include_router(upload.router, prefix=settings.API_PREFIX)
 app.include_router(ml_router.router, prefix=settings.API_PREFIX)
 app.include_router(cctv.router, prefix=settings.API_PREFIX)
+app.include_router(satellite.router, prefix=settings.API_PREFIX)
 app.include_router(websocket.router)
 
 

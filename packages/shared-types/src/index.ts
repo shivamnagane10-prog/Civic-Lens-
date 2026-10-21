@@ -286,10 +286,6 @@ export interface CctvDetection {
   description: string;
   observable_indicators: string[];
   priority: 'critical' | 'high' | 'medium' | 'low';
-  ucf_reference_class?: string;
-  ucf_similarity_score?: number;
-  baseline_deviation_sigma?: string;
-  benchmark_citation?: string;
   review_status: DetectionReviewStatus;
   reviewer_id?: string | null;
   reviewer_notes?: string | null;
@@ -345,46 +341,84 @@ export interface IncidentReport {
 }
 
 // ==========================================
-// UCF-Crime Surveillance Dataset Benchmark Types
+// Satellite Multispectral & CCTV Coverage Types
 // ==========================================
 
-export interface UcfCrimeDatasetInfo {
-  name: string;
-  authors: string;
-  conference: string;
-  institution: string;
-  total_videos: number;
-  total_hours: number;
-  total_classes: number;
-  primary_download_url: string;
-  parts_download_url: string;
-  size_gb: number;
-  description: string;
-  classes: string[];
-  benchmark_clips_indexed: number;
-  available_categories: string[];
+export type CoverageStatus = 'covered' | 'partial_gap' | 'unmonitored_gap' | 'unknown';
+
+export interface CameraCoverageEstimate {
+  camera_id: string;
+  camera_name: string;
+  code: string;
+  latitude: number;
+  longitude: number;
+  estimated_range_meters: number;
+  field_of_view_degrees?: number;
+  azimuth_degrees?: number;
+  status: string;
 }
 
-export interface UcfCrimeVideo {
+export interface CctvCoverageZone {
   id: string;
-  video_name: string;
-  ucf_category: string;
-  civiclens_category: DetectionCategory;
-  mapped_event_type: DetectionEventType;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  fps: number;
-  total_frames: number;
-  duration_seconds: number;
-  anomaly_start_frame: number;
-  anomaly_end_frame: number;
-  anomaly_start_seconds: number;
-  anomaly_end_seconds: number;
+  camera_id: string;
+  name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  status: 'active' | 'impaired' | 'offline';
+  camera_resolution: string;
+}
+
+export interface CctvCoverageGap {
+  id: string;
+  area_name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_meters: number;
+  gap_severity: 'critical' | 'high' | 'medium';
+  nearest_camera_id?: string;
+  nearest_camera_name?: string;
+  distance_to_nearest_camera_meters: number;
+  classification: 'No Registered CCTV' | 'Blind Spot' | 'Under-Monitored Corridor' | 'Peripheral Sector';
+  rationale: string;
+  recommended_camera_type: 'PTZ Dome' | 'Dual-Sensor Optical/IR' | 'Fixed High-FOV';
+  priority_score: number;
+}
+
+export interface SatelliteFinding {
+  id: string;
+  area_name: string;
+  latitude: number;
+  longitude: number;
+  finding_category: 'road_damage' | 'flooding' | 'subsidence' | 'construction_impact' | 'hazard';
+  title: string;
   description: string;
   observable_indicators: string[];
-  video_url: string;
-  poster_url: string;
-  recommended_escalation?: EscalationAgency | null;
-  location_context: string;
+  severity: 'critical' | 'high' | 'medium';
+  confidence: number;
+  status: 'needs_verification' | 'verified' | 'dismissed' | 'promoted_to_complaint';
+  imagery_source: string;
+  acquisition_date: string;
+  resolution_gsd: string;
+  multispectral_band_indices?: Record<string, number>;
+  snapshot_url: string;
+  complaint_id?: string | null;
+  created_at: string;
+}
+
+export interface CameraPlacementRecommendation {
+  id: string;
+  gap_id?: string;
+  area_name: string;
+  proposed_latitude: number;
+  proposed_longitude: number;
+  recommended_camera_type: string;
+  ward_id: string;
+  estimated_coverage_radius_meters: number;
+  justification: string;
+  submitted_by: string;
+  status: 'draft' | 'under_review' | 'approved' | 'scheduled_for_install';
+  created_at: string;
 }
 
 

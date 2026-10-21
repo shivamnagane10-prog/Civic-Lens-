@@ -54,10 +54,6 @@ class CctvDetectionModel(Base):
     description = Column(Text, nullable=False)
     observable_indicators = Column(Text, nullable=True)  # JSON list
     priority = Column(String(20), default="high")  # critical, high, medium, low
-    ucf_reference_class = Column(String(50), nullable=True)  # e.g. RoadAccidents, Assault, Fighting
-    ucf_similarity_score = Column(Float, default=0.92)  # Similarity to UCF benchmark prototype
-    baseline_deviation_sigma = Column(String(20), default="+3.8σ")  # Kinetic distance above Normal_Videos
-    benchmark_citation = Column(String(100), default="UCF-Crime CVPR 2018 (CRCV)")
     review_status = Column(String(30), default="pending_review", index=True)  # pending_review, verified, inconclusive, false_positive
     reviewer_id = Column(String(36), nullable=True)
     reviewer_notes = Column(Text, nullable=True)

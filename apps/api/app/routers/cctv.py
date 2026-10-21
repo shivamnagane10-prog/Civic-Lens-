@@ -24,8 +24,6 @@ from app.schemas.cctv import (
     AnalyzeVideoRequest,
 )
 from app.services.websocket_manager import ws_manager
-from app.data.ucf_crime_catalog import UCF_DATASET_INFO, UCF_BENCHMARK_VIDEOS
-from app.ml.surveillance_analyzer import SurveillanceTemporalAnalyzer
 
 router = APIRouter(prefix="/cctv", tags=["CCTV & AI Public Safety Monitoring"])
 
@@ -96,10 +94,6 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
         "description": det.description,
         "observable_indicators": indicators,
         "priority": det.priority,
-        "ucf_reference_class": getattr(det, "ucf_reference_class", "RoadAccidents") or "RoadAccidents",
-        "ucf_similarity_score": getattr(det, "ucf_similarity_score", 0.92) or 0.92,
-        "baseline_deviation_sigma": getattr(det, "baseline_deviation_sigma", "+3.8σ") or "+3.8σ",
-        "benchmark_citation": getattr(det, "benchmark_citation", "UCF-Crime CVPR 2018 (CRCV)") or "UCF-Crime CVPR 2018 (CRCV)",
         "review_status": det.review_status,
         "reviewer_id": det.reviewer_id,
         "reviewer_notes": det.reviewer_notes,
@@ -591,236 +585,69 @@ def escalate_incident(
 @router.post("/analyze")
 def run_ai_video_analysis(payload: AnalyzeVideoRequest, db: Session = Depends(get_db)):
     """
-    Simulates / triggers the deep temporal AI video analysis engine on a live stream or recording.
-    Detects observable anomalies and contrasts against UCF-Crime CVPR 2018 statistical reference baseline.
+    Simulates / triggers the AI video analysis engine on a live stream or recording.
+    Detects observable anomalies and inserts structured event frames into the incident queue.
     """
     cam = db.query(CameraModel).filter(CameraModel.id == payload.camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail=f"Camera {payload.camera_id} not found")
 
-    analysis_res = SurveillanceTemporalAnalyzer.analyze_stream(
-        camera_name=cam.name,
-        location_context=cam.location_name,
-        focus=payload.analysis_focus or "all"
-    )
-
     now = datetime.now(timezone.utc)
     offset_seconds = 18
 
-    # Snapshot URL depending on category
-    if analysis_res["civiclens_category"] == "civic_infrastructure":
-        snapshot = "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80"
-    else:
-        snapshot = "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=800&q=80"
-
-    det = CctvDetectionModel(
-        id=f"EVT-AI-{uuid.uuid4().hex[:6].upper()}",
-        camera_id=cam.id,
-        recording_id=payload.recording_id,
-        category=analysis_res["civiclens_category"],
-        event_type=analysis_res["event_type"],
-        confidence=analysis_res["confidence"],
-        timestamp_offset_seconds=offset_seconds,
-        incident_time=now - timedelta(seconds=offset_seconds),
-        snapshot_url=snapshot,
-        video_url=payload.video_url or cam.stream_url,
-        description=analysis_res["description"],
-        observable_indicators=json.dumps(analysis_res["observable_indicators"]),
-        priority=analysis_res["priority"],
-        ucf_reference_class=analysis_res["ucf_reference_class"],
-        ucf_similarity_score=analysis_res["ucf_similarity_score"],
-        baseline_deviation_sigma=analysis_res["baseline_deviation_sigma"],
-        benchmark_citation=analysis_res["benchmark_citation"],
-        review_status="pending_review",
-        created_at=now
-    )
-
-    db.add(det)
-    db.commit()
-    db.refresh(det)
-
-    return {
-        "status": "success",
-        "message": f"AI temporal video scan complete for {cam.name} (grounded in UCF-Crime CVPR 2018)",
-        "telemetry_metrics": analysis_res.get("telemetry_metrics"),
-        "detection": _detection_to_response(det, db)
-    }
-
-
-# ==========================================
-# 7. UCF-Crime Surveillance Dataset Endpoints
-# ==========================================
-
-@router.get("/dataset/ucf-crime")
-def get_ucf_dataset_info():
-    """
-    Returns official metadata, download links, and category hierarchy for the
-    UCF-Crime Surveillance Anomaly Benchmark (CVPR 2018).
-    """
-    return {
-        **UCF_DATASET_INFO,
-        "benchmark_clips_indexed": len(UCF_BENCHMARK_VIDEOS),
-        "available_categories": list({v["ucf_category"] for v in UCF_BENCHMARK_VIDEOS})
-    }
-
-
-@router.get("/dataset/ucf-crime/videos")
-def get_ucf_benchmark_videos(
-    category: Optional[str] = None,
-    q: Optional[str] = None
-):
-    """
-    List indexed UCF-Crime surveillance clips with ground-truth temporal frame annotations.
-    """
-    videos = UCF_BENCHMARK_VIDEOS
-    if category and category.lower() != "all":
-        videos = [v for v in videos if v["ucf_category"].lower() == category.lower()]
-    if q:
-        search = q.lower()
-        videos = [
-            v for v in videos
-            if search in v["video_name"].lower()
-            or search in v["description"].lower()
-            or search in v["ucf_category"].lower()
-        ]
-    return videos
-
-
-@router.post("/dataset/ucf-crime/{video_id}/import-as-recording")
-def import_ucf_video_as_recording(
-    video_id: str,
-    camera_id: str = Query(..., description="Target registered camera ID"),
-    db: Session = Depends(get_db)
-):
-    """
-    Imports a UCF-Crime surveillance video into a registered camera's archive timeline.
-    Also registers the ground-truth anomaly as a detection event at the exact annotated timestamp.
-    """
-    cam = db.query(CameraModel).filter(CameraModel.id == camera_id).first()
-    if not cam:
-        raise HTTPException(status_code=404, detail=f"Camera {camera_id} not found")
-
-    target_video = next((v for v in UCF_BENCHMARK_VIDEOS if v["id"] == video_id), None)
-    if not target_video:
-        raise HTTPException(status_code=404, detail=f"UCF-Crime video {video_id} not found in catalog")
-
-    now = datetime.now(timezone.utc)
-    rec_id = f"REC-UCF-{uuid.uuid4().hex[:6].upper()}"
-
-    # 1. Create Recording
-    rec = RecordingModel(
-        id=rec_id,
-        camera_id=cam.id,
-        start_time=now - timedelta(seconds=target_video["duration_seconds"]),
-        end_time=now,
-        duration_seconds=target_video["duration_seconds"],
-        video_url=target_video["video_url"],
-        thumbnail_url=target_video["poster_url"],
-        file_size_mb=45.0,
-        is_demo=True,
-        created_at=now
-    )
-    db.add(rec)
-
-    # 2. If anomaly exists (not Normal_Videos), create detection
-    det_obj = None
-    if target_video["anomaly_start_seconds"] > 0:
+    # Focus selection
+    if payload.analysis_focus == "civic_infrastructure" or (payload.analysis_focus == "all" and "Radial" in cam.name):
         det = CctvDetectionModel(
-            id=f"EVT-UCF-{uuid.uuid4().hex[:6].upper()}",
+            id=f"EVT-CIVIC-{uuid.uuid4().hex[:6].upper()}",
             camera_id=cam.id,
-            recording_id=rec_id,
-            category=target_video["civiclens_category"],
-            event_type=target_video["mapped_event_type"],
-            confidence=0.96,
-            timestamp_offset_seconds=target_video["anomaly_start_seconds"],
-            incident_time=now - timedelta(seconds=target_video["duration_seconds"] - target_video["anomaly_start_seconds"]),
-            snapshot_url=target_video["poster_url"],
-            video_url=target_video["video_url"],
-            description=f"[UCF-Crime {target_video['ucf_category']}]: {target_video['description']}",
-            observable_indicators=json.dumps(target_video["observable_indicators"]),
-            priority=target_video["priority"],
-            ucf_reference_class=target_video["ucf_category"],
-            ucf_similarity_score=0.96,
-            baseline_deviation_sigma="+4.2σ",
-            benchmark_citation="UCF-Crime CVPR 2018 (CRCV)",
+            recording_id=payload.recording_id,
+            category="civic_infrastructure",
+            event_type="pothole",
+            confidence=0.94,
+            timestamp_offset_seconds=offset_seconds,
+            incident_time=now - timedelta(seconds=offset_seconds),
+            snapshot_url="https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80",
+            video_url=payload.video_url or cam.stream_url,
+            description="Deep asphalt surface rupture detected on inner lane with heavy bus traffic.",
+            observable_indicators=json.dumps([
+                "Asphalt structural depression > 14cm",
+                "Repeated vehicular wheel deflection",
+                "High road impact risk for two-wheelers"
+            ]),
+            priority="high",
             review_status="pending_review",
             created_at=now
         )
-        db.add(det)
-        det_obj = det
+    else:
+        det = CctvDetectionModel(
+            id=f"EVT-SAFE-{uuid.uuid4().hex[:6].upper()}",
+            camera_id=cam.id,
+            recording_id=payload.recording_id,
+            category="public_safety",
+            event_type="potential_assault",
+            confidence=0.91,
+            timestamp_offset_seconds=offset_seconds,
+            incident_time=now - timedelta(seconds=offset_seconds),
+            snapshot_url="https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=800&q=80",
+            video_url=payload.video_url or cam.stream_url,
+            description="Observable physical altercation: rapid aggressive pushing motions between multiple individuals.",
+            observable_indicators=json.dumps([
+                "Sudden abrupt physical struggle lasting > 8 seconds",
+                "Forceful pushing against storefront perimeter",
+                "Pedestrian crowd rapidly dispersing away from locus"
+            ]),
+            priority="critical",
+            review_status="pending_review",
+            created_at=now
+        )
 
-    db.commit()
-    db.refresh(rec)
-    if det_obj:
-        db.refresh(det_obj)
-
-    return {
-        "status": "success",
-        "message": f"Successfully imported UCF-Crime clip '{target_video['video_name']}' into camera {cam.name}",
-        "recording_id": rec.id,
-        "detection": _detection_to_response(det_obj, db) if det_obj else None
-    }
-
-
-@router.post("/dataset/ucf-crime/{video_id}/run-inference")
-def run_inference_on_ucf_video(
-    video_id: str,
-    db: Session = Depends(get_db)
-):
-    """
-    Runs CivicLens AI temporal inference on the UCF-Crime clip.
-    Evaluates against ground-truth CVPR 2018 temporal frames and creates an incident detection ready for triage.
-    """
-    target_video = next((v for v in UCF_BENCHMARK_VIDEOS if v["id"] == video_id), None)
-    if not target_video:
-        raise HTTPException(status_code=404, detail=f"UCF-Crime video {video_id} not found")
-
-    cam = db.query(CameraModel).first()
-    camera_id = cam.id if cam else "CAM-DL-101"
-
-    now = datetime.now(timezone.utc)
-    det_id = f"EVT-UCF-{uuid.uuid4().hex[:6].upper()}"
-
-    det = CctvDetectionModel(
-        id=det_id,
-        camera_id=camera_id,
-        category=target_video["civiclens_category"],
-        event_type=target_video["mapped_event_type"],
-        confidence=0.95,
-        timestamp_offset_seconds=target_video["anomaly_start_seconds"],
-        incident_time=now - timedelta(seconds=target_video["anomaly_start_seconds"]),
-        snapshot_url=target_video["poster_url"],
-        video_url=target_video["video_url"],
-        description=f"[UCF-Crime Benchmark]: {target_video['description']}",
-        observable_indicators=json.dumps(target_video["observable_indicators"]),
-        priority=target_video["priority"],
-        ucf_reference_class=target_video["ucf_category"],
-        ucf_similarity_score=0.95,
-        baseline_deviation_sigma="+4.5σ",
-        benchmark_citation="UCF-Crime CVPR 2018 (CRCV)",
-        review_status="pending_review",
-        created_at=now
-    )
     db.add(det)
     db.commit()
     db.refresh(det)
 
     return {
         "status": "success",
-        "video_name": target_video["video_name"],
-        "ground_truth_class": target_video["ucf_category"],
-        "temporal_ground_truth": {
-            "start_frame": target_video["anomaly_start_frame"],
-            "end_frame": target_video["anomaly_end_frame"],
-            "start_seconds": target_video["anomaly_start_seconds"],
-            "end_seconds": target_video["anomaly_end_seconds"],
-        },
-        "ai_prediction": {
-            "event_type": target_video["mapped_event_type"],
-            "confidence": 0.95,
-            "detected_offset_seconds": target_video["anomaly_start_seconds"],
-            "temporal_overlap_accuracy": "97.4%",
-        },
+        "message": f"AI temporal video scan complete for {cam.name}",
         "detection": _detection_to_response(det, db)
     }
 

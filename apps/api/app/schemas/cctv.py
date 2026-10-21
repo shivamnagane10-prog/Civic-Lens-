@@ -79,10 +79,6 @@ class CctvDetectionResponse(BaseModel):
     description: str
     observable_indicators: Optional[List[str]] = None
     priority: str
-    ucf_reference_class: Optional[str] = "RoadAccidents"
-    ucf_similarity_score: Optional[float] = 0.92
-    baseline_deviation_sigma: Optional[str] = "+3.8σ"
-    benchmark_citation: Optional[str] = "UCF-Crime CVPR 2018 (CRCV)"
     review_status: str
     reviewer_id: Optional[str] = None
     reviewer_notes: Optional[str] = None

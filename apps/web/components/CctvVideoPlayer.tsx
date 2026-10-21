@@ -226,14 +226,6 @@ export function CctvVideoPlayer({
         </div>
       </div>
 
-      {/* UCF-Crime Benchmark Active Grounding Badge */}
-      <div className="absolute top-9 left-2.5 flex items-center gap-1.5 pointer-events-none z-20">
-        <div className="bg-purple-950/80 backdrop-blur-md px-2 py-0.5 rounded text-[9px] font-mono border border-purple-500/40 text-purple-200 flex items-center gap-1 shadow-sm">
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-          <span>UCF-CRIME REF: CVPR 2018</span>
-        </div>
-      </div>
-
       {/* 4. Bottom Location & Status Banner */}
       <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-[10px] font-mono pointer-events-none z-20">
         <div className="bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-800 text-slate-300 truncate max-w-[240px]">

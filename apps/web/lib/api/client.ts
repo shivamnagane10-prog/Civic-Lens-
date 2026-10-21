@@ -19,8 +19,10 @@ import {
   IncidentReport,
   DetectionReviewStatus,
   EscalationAgency,
-  UcfCrimeDatasetInfo,
-  UcfCrimeVideo
+  CctvCoverageGap,
+  CctvCoverageZone,
+  SatelliteFinding,
+  CameraPlacementRecommendation
 } from '@civiclens/shared-types';
 
 
@@ -394,51 +396,58 @@ export class ApiClient {
   }
 
   // ==========================================
-  // UCF-Crime Surveillance Dataset Benchmark
+  // Satellite Multispectral & CCTV Coverage Methods
   // ==========================================
 
-  async getUcfCrimeDatasetInfo(): Promise<UcfCrimeDatasetInfo> {
-    return this.request<UcfCrimeDatasetInfo>('/cctv/dataset/ucf-crime');
-  }
-
-  async getUcfCrimeVideos(category?: string, q?: string): Promise<UcfCrimeVideo[]> {
-    const searchParams = new URLSearchParams();
-    if (category) searchParams.append('category', category);
-    if (q) searchParams.append('q', q);
-    const qs = searchParams.toString();
-    return this.request<UcfCrimeVideo[]>(`/cctv/dataset/ucf-crime/videos${qs ? `?${qs}` : ''}`);
-  }
-
-  async importUcfCrimeVideo(
-    videoId: string,
-    cameraId: string
-  ): Promise<{ status: string; message: string; recording_id: string; detection?: CctvDetection }> {
-    return this.request<{ status: string; message: string; recording_id: string; detection?: CctvDetection }>(
-      `/cctv/dataset/ucf-crime/${videoId}/import-as-recording?camera_id=${cameraId}`,
-      { method: 'POST' }
-    );
-  }
-
-  async runUcfCrimeInference(videoId: string): Promise<{
-    status: string;
-    video_name: string;
-    ground_truth_class: string;
-    temporal_ground_truth: {
-      start_frame: number;
-      end_frame: number;
-      start_seconds: number;
-      end_seconds: number;
-    };
-    ai_prediction: {
-      event_type: string;
-      confidence: number;
-      detected_offset_seconds: number;
-      temporal_overlap_accuracy: string;
-    };
-    detection: CctvDetection;
+  async getCctvCoverage(params?: { ward_id?: string }): Promise<{
+    registered_cameras_count: number;
+    estimated_coverage_area_sq_km: number;
+    coverage_zones: CctvCoverageZone[];
+    total_gaps_count: number;
   }> {
-    return this.request(`/cctv/dataset/ucf-crime/${videoId}/run-inference`, {
+    const qs = params?.ward_id ? `?ward_id=${params.ward_id}` : '';
+    return this.request(`/cctv/coverage${qs}`);
+  }
+
+  async getCctvCoverageGaps(params?: { min_severity?: string }): Promise<CctvCoverageGap[]> {
+    const qs = params?.min_severity ? `?min_severity=${params.min_severity}` : '';
+    return this.request<CctvCoverageGap[]>(`/cctv/coverage-gaps${qs}`);
+  }
+
+  async getSatelliteFindings(params?: { status?: string }): Promise<SatelliteFinding[]> {
+    const qs = params?.status ? `?status=${params.status}` : '';
+    return this.request<SatelliteFinding[]>(`/satellite/findings${qs}`);
+  }
+
+  async triggerSatelliteAnalysis(payload: {
+    area_name: string;
+    latitude: number;
+    longitude: number;
+    radius_meters?: number;
+    spectral_profile?: string;
+  }): Promise<{ status: string; message: string; findings: SatelliteFinding[]; finding?: SatelliteFinding }> {
+    return this.request('/satellite/analyze', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createCameraPlacementRecommendation(
+    payload: Partial<CameraPlacementRecommendation>
+  ): Promise<CameraPlacementRecommendation> {
+    return this.request<CameraPlacementRecommendation>('/cctv/placement-recommendations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async promoteSatelliteFindingToComplaint(
+    findingId: string,
+    payload?: { title?: string; description?: string; severity?: string; ward_id?: string }
+  ): Promise<{ message: string; issue_id: string; finding_id: string }> {
+    return this.request(`/satellite/findings/${findingId}/create-complaint`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     });
   }
 }
