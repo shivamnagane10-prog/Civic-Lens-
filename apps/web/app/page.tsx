@@ -13,7 +13,6 @@ import { CrewPortal } from '../components/CrewPortal';
 import { CorporatorPortal } from '../components/CorporatorPortal';
 import { PublicWardView } from '../components/PublicWardView';
 import { CrewTrackerModal } from '../components/CrewTrackerModal';
-import { MobileAppView } from '../components/MobileAppView';
 import { CctvMonitoring } from '../components/CctvMonitoring';
 import { RecordedFootageView } from '../components/RecordedFootageView';
 import { AiIncidentCenter } from '../components/AiIncidentCenter';
@@ -43,7 +42,7 @@ import {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<
-    'corporator' | 'engineer' | 'crew' | 'citizen' | 'mobile' | 'map' | 'public' | 'sensors' | 'cctv' | 'footage' | 'ai_incidents' | 'satellite'
+    'corporator' | 'engineer' | 'crew' | 'citizen' | 'map' | 'public' | 'cctv' | 'footage' | 'ai_incidents' | 'satellite'
   >('corporator');
   const [currentRole, setCurrentRole] = useState<UserRole>('admin');
   const [wards, setWards] = useState<Ward[]>([]);
@@ -444,12 +443,12 @@ export default function Home() {
     await loadData();
   };
 
-  const handleSimulateSensorDetection = async (sourceType: 'cctv' | 'satellite' | 'iot') => {
+  const handleSimulateSensorDetection = async (sourceType: 'cctv' | 'satellite') => {
     try {
       const payload = {
         source: sourceType,
         device_id: `${sourceType.toUpperCase()}-FEED-${Math.floor(100 + Math.random() * 900)}`,
-        category: sourceType === 'cctv' ? 'pothole' : sourceType === 'iot' ? 'water_leak' : 'road_damage',
+        category: sourceType === 'cctv' ? 'pothole' : 'road_damage',
         latitude: +(28.61 + Math.random() * 0.04).toFixed(4),
         longitude: +(77.20 + Math.random() * 0.04).toFixed(4),
         ward_id: 'WARD-DL-01',
@@ -548,17 +547,6 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => setActiveTab('mobile')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'mobile'
-                  ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/30 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5 text-sky-400" /> Mobile App Simulator
-            </button>
-
-            <button
               onClick={() => setActiveTab('map')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 activeTab === 'map'
@@ -578,17 +566,6 @@ export default function Home() {
               }`}
             >
               <Globe className="w-3.5 h-3.5" /> Public
-            </button>
-
-            <button
-              onClick={() => setActiveTab('sensors')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'sensors'
-                  ? 'bg-slate-800 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" /> Sensors
             </button>
 
             <button
@@ -671,16 +648,95 @@ export default function Home() {
 
       {/* Main Content Area - Renders Dedicated Portal Based on Active Tab/Role */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
-        {/* 1. Municipal Corporator Interface */}
+        {/* 1. Municipal Corporator Interface & Phase 5 Ingestion Bridge */}
         {activeTab === 'corporator' && (
-          <CorporatorPortal
-            wards={wards}
-            issues={issues}
-            workOrders={workOrders}
-            crews={crews}
-            onSanctionWorkOrder={handleSanctionWorkOrder}
-            onRefresh={loadData}
-          />
+          <div className="space-y-8">
+            <CorporatorPortal
+              wards={wards}
+              issues={issues}
+              workOrders={workOrders}
+              crews={crews}
+              onSanctionWorkOrder={handleSanctionWorkOrder}
+              onRefresh={loadData}
+            />
+
+            {/* Phase 5 Automated Ingestion Bridge (CCTV / Satellite / IoT) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="border-b border-slate-800 pb-4">
+                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-sky-400" />
+                  Phase 5 Automated Ingestion Bridge (CCTV / Satellite / IoT)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Connect CCTV surveillance and satellite analysis to the CivicLens AI issue pipeline for intelligent civic monitoring and coverage-gap assessment.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* 1. CCTV Traffic Camera */}
+                <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4 flex flex-col justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-sky-400" /> CCTV Traffic Camera
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                      Simulates municipal roadside high-speed optical feed detecting road craters, traffic bottlenecks, and structural street hazards.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleSimulateSensorDetection('cctv')}
+                      className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-sky-600/20 flex items-center justify-center gap-2"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Fire CCTV Detection
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('cctv')}
+                      className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 rounded-lg text-xs font-medium transition-all"
+                    >
+                      Open CCTV Surveillance Stream →
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Satellite Multispectral */}
+                <div className="bg-slate-950 p-5 rounded-xl border border-purple-500/40 shadow-lg shadow-purple-950/20 space-y-4 flex flex-col justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-purple-400" /> Satellite Multispectral
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/30">
+                        0.5m GSD
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                      Multi-orbit optical change detection, macroscopic subsidence mapping, and automated CCTV-free gap analysis across municipal sectors.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => {
+                        setActiveTab('satellite');
+                        setLiveBanner('🛰️ Satellite Multispectral Dashboard launched: Inspecting CCTV-free gaps & Sentinel-2 optical telemetry.');
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-purple-600/30 flex items-center justify-center gap-2"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      Fire Satellite Detection
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('satellite')}
+                      className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 text-purple-400 border border-slate-800 rounded-lg text-xs font-medium transition-all"
+                    >
+                      Open Satellite Multispectral Map →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* 2. Municipal Engineer Interface */}
@@ -719,22 +775,7 @@ export default function Home() {
           />
         )}
 
-        {/* 5. Mobile Integrated App Simulator */}
-        {activeTab === 'mobile' && (
-          <MobileAppView
-            issues={issues}
-            crews={crews}
-            workOrders={workOrders}
-            notifications={citizenNotifications}
-            onReportSubmitted={async (newIssue) => {
-              setIssues((prev) => [newIssue, ...prev]);
-              setSelectedIssue(newIssue);
-              await loadData();
-            }}
-          />
-        )}
-
-        {/* 6. Spatial Map & Priority Dispatch Queue */}
+        {/* 5. Spatial Map & Priority Dispatch Queue */}
         {activeTab === 'map' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -789,85 +830,7 @@ export default function Home() {
           <PublicWardView wards={wards} />
         )}
 
-        {/* 7. Sensor Feeds Ingestion */}
-        {activeTab === 'sensors' && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-            <div className="border-b border-slate-800 pb-4">
-              <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                <Activity className="w-5 h-5 text-sky-400" />
-                Phase 5 Automated Ingestion Bridge (CCTV / Satellite / IoT)
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Trigger internal sensor feeds through <code className="text-sky-300">POST /api/v1/internal/detections</code>.
-                Detections flow into the issues pipeline, calculate priority, and broadcast in real-time.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Camera className="w-4 h-4 text-sky-400" /> CCTV Traffic Camera
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Simulates municipal roadside high-speed optical feed detecting road craters.
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleSimulateSensorDetection('cctv')}
-                  className="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all"
-                >
-                  Fire CCTV Detection
-                </button>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-emerald-400" /> IoT Water Pressure Sensor
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Simulates underground acoustic / flow sensors detecting burst water mains.
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleSimulateSensorDetection('iot')}
-                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all"
-                >
-                  Fire IoT Detection
-                </button>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-xl border border-purple-500/40 shadow-lg shadow-purple-950/20 space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="text-sm font-bold text-white flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-purple-400" /> Satellite Multispectral
-                    </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/30">
-                      0.5m GSD
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Multi-orbit optical change detection, macroscopic subsidence mapping, and automated CCTV-free gap analysis.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setActiveTab('satellite');
-                    setLiveBanner('🛰️ Satellite Multispectral Dashboard launched: Inspecting CCTV-free gaps & Sentinel-2 optical telemetry.');
-                  }}
-                  className="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-purple-600/30 flex items-center justify-center gap-1.5"
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  Fire Satellite Detection
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 8. CCTV Live Monitoring & Surveillance Dashboard */}
+        {/* 7. CCTV Live Monitoring & Surveillance Dashboard */}
         {activeTab === 'cctv' && (
           <CctvMonitoring
             onOpenRecordings={handleOpenRecordings}
