@@ -502,165 +502,169 @@ export default function Home() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="relative w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-b from-sky-500/30 via-slate-800/60 to-emerald-500/20 shadow-xl shadow-sky-950/50 flex-shrink-0 flex items-center justify-center">
+        <div className="max-w-[1720px] w-full mx-auto px-3 sm:px-6 py-2.5 flex flex-nowrap items-center justify-between gap-2.5 lg:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0">
+            <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl p-0.5 bg-gradient-to-b from-sky-500/30 via-slate-800/60 to-emerald-500/20 shadow-xl shadow-sky-950/50 flex-shrink-0 flex items-center justify-center">
               <img
                 src="/assets/civiclens-ai-logo.png"
                 alt="CivicLens AI logo"
-                className="w-full h-full object-contain rounded-xl drop-shadow-md"
+                className="w-full h-full object-contain rounded-lg drop-shadow-md"
               />
             </div>
             <div>
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-1.5 sm:gap-2">
                 CivicLens AI
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30">
                   v2.0-MultiRole
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400">Intelligent Municipal Spatial Governance & Role-Based Portals</p>
+              <p className="text-[10px] sm:text-[11px] text-slate-400 hidden xl:block">Intelligent Municipal Spatial Governance & Role-Based Portals</p>
             </div>
           </div>
 
-          {/* Navigation Tabs - Distinct Interfaces for Each Persona */}
-          <div className="flex flex-wrap items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => {
-                setActiveTab('corporator');
-                setCurrentRole('admin');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'corporator'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+          {/* Navigation Tabs - Strictly Single Line Row */}
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <nav
+              aria-label="Portal Navigation"
+              className="flex flex-nowrap items-center gap-0.5 sm:gap-1 bg-slate-900/95 p-1 rounded-xl border border-slate-800 overflow-x-auto no-scrollbar whitespace-nowrap min-w-0 max-w-full"
             >
-              <Landmark className="w-3.5 h-3.5" /> Corporator
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('corporator');
+                  setCurrentRole('admin');
+                }}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'corporator'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Landmark className="w-3.5 h-3.5 flex-shrink-0" /> Corporator
+              </button>
 
-            <button
-              onClick={() => {
-                setActiveTab('engineer');
-                setCurrentRole('engineer');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'engineer'
-                  ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5" /> Engineer
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('engineer');
+                  setCurrentRole('engineer');
+                }}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'engineer'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5 flex-shrink-0" /> Engineer
+              </button>
 
-            <button
-              onClick={() => {
-                setActiveTab('crew');
-                setCurrentRole('crew');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'crew'
-                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5" /> Field Crew
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('crew');
+                  setCurrentRole('crew');
+                }}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'crew'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Truck className="w-3.5 h-3.5 flex-shrink-0" /> Field Crew
+              </button>
 
-            <button
-              onClick={() => {
-                setActiveTab('citizen');
-                setCurrentRole('citizen');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'citizen'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" /> Citizen Portal
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('citizen');
+                  setCurrentRole('citizen');
+                }}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'citizen'
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5 flex-shrink-0" /> Citizen Portal
+              </button>
 
-            <button
-              onClick={() => setActiveTab('map')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'map'
-                  ? 'bg-slate-800 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" /> Spatial Map
-            </button>
+              <button
+                onClick={() => setActiveTab('map')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'map'
+                    ? 'bg-slate-800 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 flex-shrink-0" /> Spatial Map
+              </button>
 
-            <button
-              onClick={() => setActiveTab('public')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'public'
-                  ? 'bg-slate-800 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" /> Public
-            </button>
+              <button
+                onClick={() => setActiveTab('public')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'public'
+                    ? 'bg-slate-800 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5 flex-shrink-0" /> Public
+              </button>
 
-            <button
-              onClick={() => setActiveTab('cctv')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'cctv'
-                  ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/30 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Video className="w-3.5 h-3.5 text-sky-400" /> CCTV Surveillance
-            </button>
+              <button
+                onClick={() => setActiveTab('cctv')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'cctv'
+                    ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/30 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Video className="w-3.5 h-3.5 flex-shrink-0 text-sky-400" /> CCTV Surveillance
+              </button>
 
-            <button
-              onClick={() => setActiveTab('footage')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'footage'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Film className="w-3.5 h-3.5 text-indigo-300" /> Recorded Footage
-            </button>
+              <button
+                onClick={() => setActiveTab('footage')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'footage'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Film className="w-3.5 h-3.5 flex-shrink-0 text-indigo-300" /> Recorded Footage
+              </button>
 
-            <button
-              onClick={() => setActiveTab('ai_incidents')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'ai_incidents'
-                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" /> AI Incident Center
-            </button>
+              <button
+                onClick={() => setActiveTab('ai_incidents')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'ai_incidents'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 text-rose-400" /> AI Incident Center
+              </button>
 
-            <button
-              onClick={() => setActiveTab('satellite')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeTab === 'satellite'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5 text-purple-300" /> Satellite Multispectral
-            </button>
+              <button
+                onClick={() => setActiveTab('satellite')}
+                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  activeTab === 'satellite'
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5 flex-shrink-0 text-purple-300" /> Satellite Multispectral
+              </button>
+            </nav>
           </div>
 
-
           {/* Role Switcher & Live WS Indicator */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
               Live Telemetry
             </div>
 
             <div className="flex items-center gap-1 text-xs">
-              <Users className="w-3.5 h-3.5 text-slate-400" />
+              <Users className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
               <select
                 value={currentRole}
                 onChange={(e) => handleRoleChange(e.target.value as UserRole)}
-                className="bg-slate-900 text-slate-200 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none font-medium"
+                className="bg-slate-900 text-slate-200 text-xs px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none font-medium"
               >
                 <option value="admin">🏛️ Municipal Corporator (Ward Head)</option>
                 <option value="engineer">👷 Municipal Engineer (Technical Tasks)</option>
