@@ -54,6 +54,7 @@ export default function Home() {
   const [crewSuggestions, setCrewSuggestions] = useState<CrewSuggestion[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [liveBanner, setLiveBanner] = useState<string | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // CCTV Navigation & Playback State
   const [selectedCctvCameraId, setSelectedCctvCameraId] = useState<string | undefined>(undefined);
@@ -110,6 +111,8 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Error loading initial data', err);
+    } finally {
+      setIsInitialLoading(false);
     }
   };
 
@@ -468,17 +471,48 @@ export default function Home() {
     }
   };
 
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 space-y-4 font-sans text-slate-100">
+        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-3xl p-1 bg-gradient-to-b from-sky-500/30 via-slate-800/80 to-emerald-500/20 shadow-2xl shadow-sky-950/60 flex items-center justify-center animate-pulse">
+          <img
+            src="/assets/civiclens-ai-logo.png"
+            alt="CivicLens AI logo"
+            className="w-full h-full object-contain rounded-2xl"
+          />
+        </div>
+        <div className="text-center space-y-1">
+          <h1 className="text-lg font-bold text-white tracking-tight flex items-center justify-center gap-2">
+            CivicLens AI
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30">
+              v2.0-MultiRole
+            </span>
+          </h1>
+          <p className="text-xs text-slate-400">Intelligent Municipal Spatial Governance & Role-Based Portals</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-mono text-sky-400 mt-2">
+          <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping inline-block" />
+          <span>Synchronizing Municipal Telemetry...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-emerald-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
-              <Shield className="w-5 h-5 text-white" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="relative w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-b from-sky-500/30 via-slate-800/60 to-emerald-500/20 shadow-xl shadow-sky-950/50 flex-shrink-0 flex items-center justify-center">
+              <img
+                src="/assets/civiclens-ai-logo.png"
+                alt="CivicLens AI logo"
+                className="w-full h-full object-contain rounded-xl drop-shadow-md"
+              />
             </div>
             <div>
-              <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
                 CivicLens AI
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30">
                   v2.0-MultiRole
