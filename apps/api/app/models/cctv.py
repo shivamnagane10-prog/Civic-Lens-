@@ -60,6 +60,11 @@ class CctvDetectionModel(Base):
     reviewed_at = Column(DateTime, nullable=True)
     complaint_id = Column(String(36), ForeignKey("issues.id"), nullable=True)
     incident_report_id = Column(String(36), nullable=True)
+    model_name = Column(String(100), default="CivicLens-MultiVision-v2.2")
+    model_version = Column(String(30), default="2.2.0")
+    bounding_box = Column(Text, nullable=True)  # JSON: {"x": .., "y": .., "w": .., "h": ..}
+    is_restricted = Column(Boolean, default=False)
+    validation_metrics = Column(Text, nullable=True)  # JSON metrics
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 class IncidentReportModel(Base):

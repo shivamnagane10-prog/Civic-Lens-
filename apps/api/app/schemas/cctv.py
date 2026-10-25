@@ -85,10 +85,15 @@ class CctvDetectionResponse(BaseModel):
     reviewed_at: Optional[datetime] = None
     complaint_id: Optional[str] = None
     incident_report_id: Optional[str] = None
+    model_name: Optional[str] = "CivicLens-MultiVision-v2.2"
+    model_version: Optional[str] = "2.2.0"
+    bounding_box: Optional[Dict[str, Any]] = None
+    is_restricted: Optional[bool] = False
+    validation_metrics: Optional[Dict[str, Any]] = None
     created_at: datetime
 
 class ReviewDetectionRequest(BaseModel):
-    review_status: Literal["verified", "inconclusive", "false_positive"]
+    review_status: Literal["pending_review", "verified", "inconclusive", "false_positive", "escalated", "closed"]
     reviewer_id: Optional[str] = "USER-ADMIN"
     reviewer_notes: Optional[str] = None
 
@@ -97,6 +102,24 @@ class ComplaintDraftRequest(BaseModel):
     description: Optional[str] = None
     ward_id: Optional[str] = None
     severity: Optional[str] = "medium"
+
+class AnalyzeVideoMultiCategoryRequest(BaseModel):
+    camera_id: str
+    recording_id: Optional[str] = None
+    video_url: Optional[str] = None
+    categories: Optional[List[str]] = Field(default_factory=lambda: [
+        "traffic_safety",
+        "garbage_waste",
+        "waterlogging_flood",
+        "road_damage",
+        "assault_violence",
+        "forced_movement",
+        "sexual_violence_sensitive",
+        "other_public_safety"
+    ])
+    confidence_threshold: Optional[float] = 0.70
+    sample_interval_seconds: Optional[float] = 1.0
+    include_restricted: Optional[bool] = True
 
 class IncidentReportCreate(BaseModel):
     detection_id: str

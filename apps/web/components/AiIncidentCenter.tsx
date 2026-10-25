@@ -8,7 +8,7 @@ import {
   DetectionReviewStatus,
   EscalationAgency,
   EscalationStatus,
-  Issue
+  Camera,
 } from '@civiclens/shared-types';
 import { api } from '../lib/api/client';
 import {
@@ -37,13 +37,60 @@ import {
   ExternalLink,
   ShieldAlert,
   ArrowRight,
-  Database
+  Database,
+  Cpu,
+  Car,
+  Trash2,
+  Waves,
+  Construction,
+  Users,
+  Lock,
+  Layers,
+  ZoomIn,
 } from 'lucide-react';
 
 interface AiIncidentCenterProps {
   onWatchIncident: (cameraId: string, seekSeconds: number) => void;
   onWatchLive: (cameraId: string) => void;
   onComplaintCreated?: (issue: any) => void;
+}
+
+const CATEGORY_TABS = [
+  { id: 'all', label: 'All Incidents', icon: Layers },
+  { id: 'traffic_safety', label: 'Traffic & Road Safety', icon: Car },
+  { id: 'garbage_waste', label: 'Garbage & Waste', icon: Trash2 },
+  { id: 'waterlogging_flood', label: 'Waterlogging & Flood', icon: Waves },
+  { id: 'road_damage', label: 'Road Damage', icon: Construction },
+  { id: 'assault_violence', label: 'Physical Violence', icon: ShieldAlert },
+  { id: 'forced_movement', label: 'Possible Forced Movement', icon: Users },
+  { id: 'sexual_violence_sensitive', label: 'Sensitive Safeguarding', icon: Lock },
+  { id: 'other_public_safety', label: 'Other Hazards', icon: Activity },
+];
+
+function isCivicInfrastructureCategory(category: string, eventType: string): boolean {
+  if (['assault_violence', 'forced_movement', 'sexual_violence_sensitive', 'other_public_safety'].includes(category)) {
+    return false;
+  }
+  if (eventType.includes('assault') || eventType.includes('forced') || eventType.includes('collapse') || eventType.includes('sexual')) {
+    return false;
+  }
+  return true;
+}
+
+function matchCategory(det: CctvDetection, filter: string): boolean {
+  if (filter === 'all') return true;
+  const cat = det.category as string;
+  const et = det.event_type.toLowerCase();
+  if (cat === filter) return true;
+  if (filter === 'traffic_safety' && (cat === 'traffic_safety' || et.includes('traffic') || et.includes('vehicle') || et.includes('congestion'))) return true;
+  if (filter === 'garbage_waste' && (cat === 'garbage_waste' || cat === 'garbage' || et.includes('garbage') || et.includes('waste'))) return true;
+  if (filter === 'waterlogging_flood' && (cat === 'waterlogging_flood' || cat === 'waterlogging' || et.includes('waterlogging') || et.includes('water') || et.includes('drainage'))) return true;
+  if (filter === 'road_damage' && (cat === 'road_damage' || cat === 'civic_infrastructure' || et.includes('pothole') || et.includes('damage') || et.includes('crack'))) return true;
+  if (filter === 'assault_violence' && (cat === 'assault_violence' || et.includes('assault') || et.includes('violence') || et.includes('altercation'))) return true;
+  if (filter === 'forced_movement' && (cat === 'forced_movement' || et.includes('forced') || et.includes('restraint'))) return true;
+  if (filter === 'sexual_violence_sensitive' && (cat === 'sexual_violence_sensitive' || det.is_restricted || et.includes('sexual'))) return true;
+  if (filter === 'other_public_safety' && (cat === 'other_public_safety' || et.includes('collapse') || et.includes('fall') || et.includes('crowd') || et.includes('harassment'))) return true;
+  return false;
 }
 
 export function AiIncidentCenter({
@@ -53,10 +100,14 @@ export function AiIncidentCenter({
 }: AiIncidentCenterProps) {
   const [detections, setDetections] = useState<CctvDetection[]>([]);
   const [incidentReports, setIncidentReports] = useState<IncidentReport[]>([]);
+  const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(true);
-  const [categoryFilter, setCategoryFilter] = useState<'all' | DetectionCategory>('all');
-  const [reviewFilter, setReviewFilter] = useState<'all' | DetectionReviewStatus>('all');
-  const [priorityFilter, setPriorityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+
+  // Filters
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [reviewFilter, setReviewFilter] = useState<string>('all');
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [cameraFilter, setCameraFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Selected for review modal
@@ -77,12 +128,14 @@ export function AiIncidentCenter({
   const loadData = async () => {
     try {
       setLoading(true);
-      const [dets, reports] = await Promise.all([
+      const [dets, reports, cams] = await Promise.all([
         api.getCctvDetections(),
         api.getIncidentReports().catch(() => []),
+        api.getCctvCameras().catch(() => []),
       ]);
       setDetections(dets);
       setIncidentReports(reports);
+      setCameras(cams);
     } catch (err) {
       console.error('Failed to load incident center data', err);
     } finally {
@@ -96,18 +149,20 @@ export function AiIncidentCenter({
 
   // Filter Detections
   const filteredDetections = detections.filter((d) => {
-    const matchesCategory = categoryFilter === 'all' || d.category === categoryFilter;
+    const matchesCategory = matchCategory(d, categoryFilter);
     const matchesReview = reviewFilter === 'all' || d.review_status === reviewFilter;
     const matchesPriority = priorityFilter === 'all' || d.priority === priorityFilter;
+    const matchesCamera = cameraFilter === 'all' || d.camera_id === cameraFilter;
     const matchesSearch =
       d.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       d.event_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
       d.camera_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.id.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesReview && matchesPriority && matchesSearch;
+      d.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (d.observable_indicators && d.observable_indicators.some((ind) => ind.toLowerCase().includes(searchQuery.toLowerCase())));
+    return matchesCategory && matchesReview && matchesPriority && matchesCamera && matchesSearch;
   });
 
-  // Action 1: Submit Human Review (Verified / Inconclusive / False Positive)
+  // Action 1: Submit Human Review (Verified / Inconclusive / False Positive / Escalated / Closed)
   const handleSubmitReview = async () => {
     if (!reviewingDetection) return;
     try {
@@ -140,7 +195,6 @@ export function AiIncidentCenter({
         severity: detection.priority,
       });
 
-      // Update local state
       setDetections((prev) =>
         prev.map((d) => (d.id === detection.id ? { ...d, review_status: 'verified', complaint_id: res.issue_id } : d))
       );
@@ -149,10 +203,12 @@ export function AiIncidentCenter({
         onComplaintCreated(res);
       }
 
-      setActionBanner(`✅ Created Civic Complaint #${res.issue_id}! Routed to Corporator Portal for budget approval & crew dispatch.`);
+      setActionBanner(`Created Civic Complaint #${res.issue_id}! Routed to Corporator Portal for budget approval & crew dispatch.`);
       setTimeout(() => setActionBanner(null), 6000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setActionBanner(`Notice: ${err.message || 'Could not route complaint'}`);
+      setTimeout(() => setActionBanner(null), 6000);
     }
   };
 
@@ -165,7 +221,7 @@ export function AiIncidentCenter({
         summary: reportSummary || reportingDetection.description,
         priority: reportingDetection.priority,
         escalation_channel: escalationAgency,
-        reviewer_notes: `Incident verified by Operator. Transmitted to ${escalationAgency.toUpperCase()} emergency channel.`,
+        reviewer_notes: `Incident verified by Authorized Operator. Transmitted to ${escalationAgency.toUpperCase()} emergency channel.`,
       });
 
       setIncidentReports((prev) => [rep, ...prev]);
@@ -173,7 +229,7 @@ export function AiIncidentCenter({
         prev.map((d) => (d.id === reportingDetection.id ? { ...d, review_status: 'verified', incident_report_id: rep.id } : d))
       );
 
-      setActionBanner(`🚨 Formal Incident Report #${rep.id} created & transmitted to ${escalationAgency.toUpperCase()}! Tracking Ref: ${rep.agency_reference_id}`);
+      setActionBanner(`Formal Incident Report #${rep.id} created & transmitted to ${escalationAgency.toUpperCase()}! Agency Ref: ${rep.agency_reference_id}`);
       setTimeout(() => setActionBanner(null), 6000);
       setReportingDetection(null);
       setReportSummary('');
@@ -184,50 +240,37 @@ export function AiIncidentCenter({
     }
   };
 
-  // Action 4: Update live escalation progression
-  const handleUpdateEscalationStatus = async (reportId: string, newStatus: EscalationStatus) => {
-    try {
-      const rep = incidentReports.find((r) => r.id === reportId);
-      if (!rep) return;
-      const updated = await api.escalateIncidentReport(reportId, rep.escalation_channel || 'police_112', newStatus);
-      setIncidentReports((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-      setActionBanner(`Agency Ref ${updated.agency_reference_id} status updated to: ${newStatus.toUpperCase()}`);
-      setTimeout(() => setActionBanner(null), 4000);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   const getPriorityBadge = (p: string) => {
     switch (p) {
       case 'critical':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping inline-block" />
             CRITICAL
           </span>
         );
       case 'high':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
             HIGH
           </span>
         );
       case 'medium':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/40">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
             MEDIUM
           </span>
         );
       default:
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-700 text-slate-300">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/40 text-slate-400 border border-slate-700">
             LOW
           </span>
         );
     }
   };
 
-  const getReviewBadge = (st: DetectionReviewStatus) => {
+  const getReviewBadge = (st: string) => {
     switch (st) {
       case 'verified':
         return (
@@ -245,6 +288,18 @@ export function AiIncidentCenter({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/50 text-slate-400 border border-slate-600/50">
             <XCircle className="w-3 h-3" /> False Positive
+          </span>
+        );
+      case 'escalated':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+            <Send className="w-3 h-3" /> Escalated
+          </span>
+        );
+      case 'closed':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+            <Check className="w-3 h-3" /> Closed
           </span>
         );
       default:
@@ -266,23 +321,34 @@ export function AiIncidentCenter({
               <ShieldAlert className="w-4 h-4" />
             </div>
             <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              AI Incident Queue & Emergency Response Center
+              Multi-Category AI Incident Center & Verification Queue
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-rose-950 text-rose-400 border border-rose-800/80">
-                HUMAN-IN-THE-LOOP TRIAGE
+                EVIDENCE-BASED REVIEW
               </span>
             </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Ethical AI video inference with mandatory human triage. Fork A: Route civic hazards to municipal complaints. Fork B: Generate verifiable incident reports for emergency agencies.
+            Centralized review queue for traffic events, waste management, waterlogging, road defects, and public-safety interactions.
+            Municipal issues route into civic complaints; sensitive and physical-safety incidents route into formal emergency escalations.
           </p>
         </div>
 
         {/* Quick Triage Tallies */}
         <div className="flex items-center gap-2 text-xs font-mono">
           <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">TOTAL EVENTS</span>
+            <span className="text-white font-bold">{detections.length}</span>
+          </div>
+          <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
             <span className="text-slate-400 block text-[10px]">PENDING</span>
             <span className="text-sky-400 font-bold">
               {detections.filter((d) => d.review_status === 'pending_review').length}
+            </span>
+          </div>
+          <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span className="text-slate-400 block text-[10px]">VERIFIED</span>
+            <span className="text-emerald-400 font-bold">
+              {detections.filter((d) => d.review_status === 'verified').length}
             </span>
           </div>
           <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
@@ -294,48 +360,96 @@ export function AiIncidentCenter({
 
       {actionBanner && (
         <div className="p-3 bg-indigo-950/70 border border-indigo-500/50 rounded-xl text-xs text-indigo-200 flex items-center gap-2 shadow-lg animate-fadeIn">
-          <Radio className="w-4 h-4 text-sky-400 animate-pulse" />
+          <Radio className="w-4 h-4 text-sky-400 animate-pulse flex-shrink-0" />
           <span className="font-medium">{actionBanner}</span>
         </div>
       )}
 
       {/* Filter and Category Navigation */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Main Category Filter Tabs */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setCategoryFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                categoryFilter === 'all'
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All Incidents ({detections.length})
-            </button>
-            <button
-              onClick={() => setCategoryFilter('public_safety')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                categoryFilter === 'public_safety'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <ShieldAlert className="w-3.5 h-3.5 text-rose-300" />
-              Public Safety & Emergencies ({detections.filter((d) => d.category === 'public_safety').length})
-            </button>
-            <button
-              onClick={() => setCategoryFilter('civic_infrastructure')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                categoryFilter === 'civic_infrastructure'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5 text-amber-300" />
-              Civic Infrastructure Hazards ({detections.filter((d) => d.category === 'civic_infrastructure').length})
-            </button>
+        {/* Row 1: Category Filter Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+          {CATEGORY_TABS.map((tab) => {
+            const IconComp = tab.icon;
+            const count =
+              tab.id === 'all'
+                ? detections.length
+                : detections.filter((d) => matchCategory(d, tab.id)).length;
+            const isSelected = categoryFilter === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setCategoryFilter(tab.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/20 font-bold'
+                    : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 border border-slate-800/80 hover:border-slate-700'
+                }`}
+              >
+                <IconComp className="w-3.5 h-3.5" />
+                <span>{tab.label}</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-900 text-slate-300">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Row 2: Secondary Filters (Camera, Review, Priority, Search) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            {/* Camera Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-slate-500 uppercase">Camera:</span>
+              <select
+                value={cameraFilter}
+                onChange={(e) => setCameraFilter(e.target.value)}
+                className="bg-slate-950 text-slate-200 text-xs px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none"
+              >
+                <option value="all">All Cameras ({cameras.length})</option>
+                {cameras.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} — {c.location_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Review Status Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-slate-500 uppercase">Status:</span>
+              <select
+                value={reviewFilter}
+                onChange={(e) => setReviewFilter(e.target.value)}
+                className="bg-slate-950 text-slate-200 text-xs px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending_review">Pending Review</option>
+                <option value="verified">Verified</option>
+                <option value="inconclusive">Inconclusive</option>
+                <option value="false_positive">False Positive</option>
+                <option value="escalated">Escalated</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            {/* Priority Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-slate-500 uppercase">Priority:</span>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="bg-slate-950 text-slate-200 text-xs px-2.5 py-1 rounded-lg border border-slate-800 focus:outline-none"
+              >
+                <option value="all">All Priorities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
           </div>
 
           {/* Search Box */}
@@ -345,86 +459,58 @@ export function AiIncidentCenter({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by event, camera, or description..."
+              placeholder="Search facts, camera, or description..."
               className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
             />
           </div>
-        </div>
-
-        {/* Secondary Filter Row: Review Status & Priority */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80 text-xs text-slate-400">
-          <span className="text-[11px] font-mono uppercase text-slate-500">Review Status:</span>
-          {(['all', 'pending_review', 'verified', 'inconclusive', 'false_positive'] as const).map((st) => (
-            <button
-              key={st}
-              onClick={() => setReviewFilter(st)}
-              className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all ${
-                reviewFilter === st
-                  ? 'bg-slate-800 text-white font-bold border border-slate-700'
-                  : 'hover:text-slate-200'
-              }`}
-            >
-              {st === 'all'
-                ? 'All'
-                : st.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-            </button>
-          ))}
-
-          <span className="text-slate-700 mx-1">|</span>
-
-          <span className="text-[11px] font-mono uppercase text-slate-500">Priority:</span>
-          {(['all', 'critical', 'high', 'medium', 'low'] as const).map((pr) => (
-            <button
-              key={pr}
-              onClick={() => setPriorityFilter(pr)}
-              className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all ${
-                priorityFilter === pr
-                  ? 'bg-slate-800 text-white font-bold border border-slate-700'
-                  : 'hover:text-slate-200'
-              }`}
-            >
-              {pr.toUpperCase()}
-            </button>
-          ))}
         </div>
       </div>
 
       {/* Main Grid: Detections Triage Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredDetections.map((det) => {
-          const isSafety = det.category === 'public_safety';
+          const isCivic = isCivicInfrastructureCategory(det.category, det.event_type);
+
           return (
             <div
               key={det.id}
               className={`bg-slate-900 border rounded-2xl overflow-hidden shadow-xl flex flex-col transition-all hover:shadow-2xl ${
-                isSafety ? 'border-slate-800 hover:border-rose-500/50' : 'border-slate-800 hover:border-sky-500/50'
+                !isCivic ? 'border-slate-800 hover:border-rose-500/50' : 'border-slate-800 hover:border-sky-500/50'
               }`}
             >
               {/* Snapshot with Badges */}
-              <div className="relative aspect-video bg-black">
+              <div className="relative aspect-video bg-black overflow-hidden group">
                 <img
                   src={det.snapshot_url}
                   alt={det.description}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
 
                 {/* Overlaid Badges */}
-                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
                   {getPriorityBadge(det.priority)}
                   <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-950/80 backdrop-blur-md text-white border border-slate-800">
-                    {det.event_type.replace('_', ' ').toUpperCase()}
+                    {det.event_type.replace(/_/g, ' ').toUpperCase()}
                   </span>
+                  {det.is_restricted && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-pink-950/80 text-pink-300 border border-pink-700/50 flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" /> RESTRICTED
+                    </span>
+                  )}
                 </div>
 
                 <div className="absolute top-2.5 right-2.5">{getReviewBadge(det.review_status)}</div>
 
-                {/* Offset & Confidence */}
+                {/* Offset & Model Info Footer on snapshot */}
                 <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-[10px] font-mono bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-800 text-slate-300">
                   <span className="text-sky-400 font-bold">
-                    Offset: {det.timestamp_offset_seconds}s
+                    T+{det.timestamp_offset_seconds}s
                   </span>
-                  <span className="text-emerald-400">
-                    AI Confidence: {Math.round(det.confidence * 100)}%
+                  <span className="text-indigo-300 truncate max-w-[150px]">
+                    {det.model_name || 'v2.2'}
+                  </span>
+                  <span className="text-emerald-400 font-bold">
+                    {Math.round(det.confidence * 100)}% Conf
                   </span>
                 </div>
               </div>
@@ -449,9 +535,9 @@ export function AiIncidentCenter({
                   {det.observable_indicators && det.observable_indicators.length > 0 && (
                     <div className="mt-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800 space-y-1">
                       <span className="text-[10px] font-mono font-bold uppercase text-slate-400 block">
-                        Observable Facts:
+                        Verifiable Observable Indicators:
                       </span>
-                      {det.observable_indicators.slice(0, 2).map((ind, i) => (
+                      {det.observable_indicators.slice(0, 3).map((ind, i) => (
                         <div key={i} className="text-[11px] text-slate-300 flex items-start gap-1.5">
                           <Check className="w-3 h-3 text-emerald-400 mt-0.5 flex-shrink-0" />
                           <span className="line-clamp-1">{ind}</span>
@@ -477,30 +563,40 @@ export function AiIncidentCenter({
 
                 {/* Primary Action Buttons */}
                 <div className="pt-3 border-t border-slate-800 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5 text-xs">
                     {/* Watch Incident (-5s buffer) */}
                     <button
                       onClick={() => onWatchIncident(det.camera_id, det.timestamp_offset_seconds)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-sky-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                      className="px-2 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-sky-400 text-[11px] font-semibold flex items-center justify-center gap-1 transition-all"
+                      title="Seek to exact incident offset"
                     >
-                      <Play className="w-3 h-3" /> Watch Incident
+                      <Play className="w-3 h-3" /> Watch
                     </button>
 
-                    {/* Review Decision */}
+                    {/* View Full Recording */}
+                    <button
+                      onClick={() => onWatchIncident(det.camera_id, 0)}
+                      className="px-2 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] font-semibold flex items-center justify-center gap-1 transition-all"
+                      title="Open full video archive"
+                    >
+                      <FileText className="w-3 h-3 text-indigo-400" /> Full Video
+                    </button>
+
+                    {/* Review Evidence */}
                     <button
                       onClick={() => {
                         setReviewingDetection(det);
                         setReviewDecision('verified');
                         setReviewerNotes(det.reviewer_notes || '');
                       }}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                      className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1 transition-all"
                     >
-                      <UserCheck className="w-3 h-3 text-sky-400" /> Review
+                      <UserCheck className="w-3 h-3 text-emerald-400" /> Triage
                     </button>
                   </div>
 
-                  {/* Fork Action Buttons */}
-                  {det.category === 'civic_infrastructure' ? (
+                  {/* Fork Action Buttons: Complaint vs Formal Incident Report */}
+                  {isCivic ? (
                     <button
                       onClick={() => handleRouteToCivicComplaint(det)}
                       disabled={!!det.complaint_id}
@@ -519,7 +615,7 @@ export function AiIncidentCenter({
                       className="w-full py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
                     >
                       <ShieldAlert className="w-3.5 h-3.5" />
-                      {det.incident_report_id ? 'Escalated to Emergency Agency' : 'Generate Incident Report & Escalate'}
+                      {det.incident_report_id ? 'Formal Report Dispatched' : 'Generate Formal Incident Report'}
                     </button>
                   )}
                 </div>
@@ -529,277 +625,196 @@ export function AiIncidentCenter({
         })}
       </div>
 
-      {filteredDetections.length === 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500 text-xs">
-          No detections matching active filters.
+      {filteredDetections.length === 0 && !loading && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400 text-xs shadow-xl space-y-2">
+          <Layers className="w-8 h-8 text-slate-600 mx-auto" />
+          <p className="font-bold text-white text-sm">No incidents match current filter criteria</p>
+          <p className="text-slate-500">Try adjusting the category tab, camera dropdown, or clearing search keywords.</p>
         </div>
       )}
 
-      {/* Escalated Emergency Incidents Tracking Table */}
-      {incidentReports.length > 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                <Radio className="w-4 h-4 text-rose-400 animate-pulse" />
-                Active Emergency Agency Escalation Feed
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Live agency reference tracking and dispatch status updates.
-              </p>
-            </div>
-            <span className="text-xs font-mono text-slate-400">{incidentReports.length} Dispatches</span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950 text-slate-400 font-mono text-[10px] uppercase border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-3">Report ID</th>
-                  <th className="py-2.5 px-3">Agency Channel</th>
-                  <th className="py-2.5 px-3">Location</th>
-                  <th className="py-2.5 px-3">Agency Ref</th>
-                  <th className="py-2.5 px-3">Dispatch Status</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
-                {incidentReports.map((rep) => (
-                  <tr key={rep.id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="py-3 px-3 font-mono font-bold text-white">{rep.id}</td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
-                        {rep.escalation_channel || 'POLICE-112'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-slate-300 max-w-xs truncate">{rep.location_text}</td>
-                    <td className="py-3 px-3 font-mono text-sky-400 font-semibold">{rep.agency_reference_id}</td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono ${
-                          rep.escalation_status === 'resolved'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : rep.escalation_status === 'unit_en_route'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                        }`}
-                      >
-                        {rep.escalation_status.toUpperCase().replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right space-x-1.5">
-                      {rep.escalation_status !== 'resolved' && (
-                        <>
-                          {rep.escalation_status === 'dispatched' && (
-                            <button
-                              onClick={() => handleUpdateEscalationStatus(rep.id, 'unit_en_route')}
-                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 text-[10px] font-semibold"
-                            >
-                              Unit En Route
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleUpdateEscalationStatus(rep.id, 'resolved')}
-                            className="px-2 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 text-[10px] font-semibold"
-                          >
-                            Mark Resolved
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 1: Human Review Decision Modal */}
+      {/* ========================================== */}
+      {/* Human Review Modal (Triage & Audit Log) */}
+      {/* ========================================== */}
       {reviewingDetection && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-scaleUp">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-sky-400" />
-                <h3 className="text-sm font-bold text-white tracking-tight">
-                  Triage Decision: #{reviewingDetection.id}
+                <UserCheck className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Evidence Verification & Human Review: #{reviewingDetection.id}
                 </h3>
               </div>
               <button
                 onClick={() => setReviewingDetection(null)}
-                className="text-slate-500 hover:text-white"
+                className="text-slate-400 hover:text-white text-xs p-1"
               >
                 ✕
               </button>
             </div>
 
-            {/* Ethical Safeguard Notice */}
-            <div className="p-3 bg-sky-950/40 border border-sky-500/30 rounded-xl text-xs text-sky-300 space-y-1">
-              <span className="font-bold flex items-center gap-1 text-[11px]">
-                <Shield className="w-3.5 h-3.5 text-sky-400" /> Ethical Safeguarding Notice:
-              </span>
-              <p className="text-[11px] text-slate-300">
-                Base your evaluation strictly on observable physical evidence. Do not profile or speculate on legal guilt. Use "Inconclusive" when footage is ambiguous.
-              </p>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-400 block mb-1 font-mono uppercase text-[10px]">
-                  Triage Decision
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => setReviewDecision('verified')}
-                    className={`py-2 px-3 rounded-xl font-semibold border transition-all text-xs flex items-center justify-center gap-1.5 ${
-                      reviewDecision === 'verified'
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Verified
-                  </button>
-
-                  <button
-                    onClick={() => setReviewDecision('inconclusive')}
-                    className={`py-2 px-3 rounded-xl font-semibold border transition-all text-xs flex items-center justify-center gap-1.5 ${
-                      reviewDecision === 'inconclusive'
-                        ? 'bg-amber-600 text-white border-amber-500 shadow-md'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <HelpCircle className="w-3.5 h-3.5" /> Inconclusive
-                  </button>
-
-                  <button
-                    onClick={() => setReviewDecision('false_positive')}
-                    className={`py-2 px-3 rounded-xl font-semibold border transition-all text-xs flex items-center justify-center gap-1.5 ${
-                      reviewDecision === 'false_positive'
-                        ? 'bg-rose-600 text-white border-rose-500 shadow-md'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <XCircle className="w-3.5 h-3.5" /> False Positive
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-slate-400 block mb-1 font-mono uppercase text-[10px]">
-                  Reviewer Observations & Notes
-                </label>
-                <textarea
-                  value={reviewerNotes}
-                  onChange={(e) => setReviewerNotes(e.target.value)}
-                  placeholder="Record objective, observable facts (e.g. verified pothole depth, observed physical altercation, or inconclusive due to occluded lens)..."
-                  rows={3}
-                  className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
+            {/* Snapshot Preview */}
+            <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800">
+              <img
+                src={reviewingDetection.snapshot_url}
+                alt="Evidence"
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute bottom-2 left-2 bg-slate-950/90 text-white text-[10px] font-mono px-2 py-0.5 rounded border border-slate-800">
+                Model: {reviewingDetection.model_name || 'CivicLens-v2.2'} • Conf: {Math.round(reviewingDetection.confidence * 100)}%
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            {/* Observable Indicators Review */}
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Observed Facts from Video:</label>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+                {reviewingDetection.observable_indicators?.map((ind, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                    <Check className="w-3 h-3 text-emerald-400 mt-0.5 flex-shrink-0" />
+                    <span>{ind}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Review Decision Radios */}
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1.5">Reviewer Decision:</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {(['verified', 'inconclusive', 'false_positive', 'closed'] as const).map((dec) => (
+                  <button
+                    key={dec}
+                    type="button"
+                    onClick={() => setReviewDecision(dec)}
+                    className={`py-2 px-2 rounded-xl border text-center font-semibold transition-all ${
+                      reviewDecision === dec
+                        ? dec === 'verified'
+                          ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
+                          : dec === 'inconclusive'
+                          ? 'bg-amber-950/60 border-amber-500 text-amber-300'
+                          : 'bg-slate-800 border-slate-600 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {dec.replace('_', ' ').toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Reviewer Justification & Audit Notes:</label>
+              <textarea
+                value={reviewerNotes}
+                onChange={(e) => setReviewerNotes(e.target.value)}
+                placeholder="Detail optical findings, temporal checks, and justification for review classification..."
+                rows={2}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
                 onClick={() => setReviewingDetection(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmitReview}
                 disabled={isSubmittingReview}
-                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/30"
+                className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-sky-600/30"
               >
-                {isSubmittingReview ? 'Saving Decision...' : 'Commit Review Decision'}
+                {isSubmittingReview ? 'Submitting...' : 'Save Review Decision'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL 2: Formal Incident Report & Emergency Escalation */}
+      {/* ========================================== */}
+      {/* Formal Incident Report / Escalation Modal */}
+      {/* ========================================== */}
       {reportingDetection && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-scaleUp">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-rose-400" />
-                <h3 className="text-sm font-bold text-white tracking-tight">
-                  Generate Formal Incident Report & Escalate
+                <ShieldAlert className="w-4 h-4 text-rose-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Generate Formal Incident Report & Dispatch: #{reportingDetection.id}
                 </h3>
               </div>
               <button
                 onClick={() => setReportingDetection(null)}
-                className="text-slate-500 hover:text-white"
+                className="text-slate-400 hover:text-white text-xs p-1"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-400 block mb-1 font-mono uppercase text-[10px]">
-                  Emergency Dispatch Agency Channel
-                </label>
-                <select
-                  value={escalationAgency}
-                  onChange={(e) => setEscalationAgency(e.target.value as EscalationAgency)}
-                  className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500"
-                >
-                  <option value="police_112">Police Emergency Dispatch (112 / PCR)</option>
-                  <option value="mrrt">Municipal Rapid Response Team (MRRT)</option>
-                  <option value="traffic_police">Traffic Control Room & Towing</option>
-                  <option value="fire_rescue">Fire & Disaster Rescue Services</option>
-                  <option value="women_safety_1091">Women Safety Helpline (1091 Special Cell)</option>
-                  <option value="ambulance_108">Emergency Ambulance Services (108)</option>
-                </select>
-              </div>
+            {/* Target Channel Selector */}
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Emergency Escalation Channel:</label>
+              <select
+                value={escalationAgency}
+                onChange={(e) => setEscalationAgency(e.target.value as EscalationAgency)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500 font-medium"
+              >
+                <option value="police_112">🚓 Police Control Room (Dial 112 / PCR)</option>
+                <option value="mrrt">🛡️ Municipal Rapid Response Team (MRRT)</option>
+                <option value="traffic_police">🚦 Traffic Management Beat Unit</option>
+                <option value="women_safety_1091">🚨 Women Safety Helpline 1091 (Specialized Cell)</option>
+                <option value="ambulance_108">🚑 Emergency Medical Ambulance (108)</option>
+                <option value="fire_rescue">🚒 Fire & Emergency Services</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="text-slate-400 block mb-1 font-mono uppercase text-[10px]">
-                  Verifiable Incident Summary
-                </label>
-                <textarea
-                  value={reportSummary}
-                  onChange={(e) => setReportSummary(e.target.value)}
-                  rows={3}
-                  className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500"
-                />
-              </div>
+            {/* Incident Summary */}
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Verifiable Incident Summary:</label>
+              <textarea
+                value={reportSummary}
+                onChange={(e) => setReportSummary(e.target.value)}
+                rows={3}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+            </div>
 
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Location:</span>
-                  <span className="text-white font-mono">{reportingDetection.location_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Exact Timestamp Offset:</span>
-                  <span className="text-sky-400 font-mono font-bold">
-                    {reportingDetection.timestamp_offset_seconds}s in recording
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Reviewing Official:</span>
-                  <span className="text-white font-mono">Sarah Vance (Admin)</span>
-                </div>
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+              <div className="flex justify-between">
+                <span>Location:</span>
+                <span className="text-white font-mono">{reportingDetection.location_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Offset:</span>
+                <span className="text-sky-400 font-mono">T+{reportingDetection.timestamp_offset_seconds}s</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Reviewer Accountability:</span>
+                <span className="text-emerald-400 font-mono">Director Sarah Vance (ID: USER-ADMIN)</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
               <button
                 onClick={() => setReportingDetection(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={handleGenerateAndEscalateReport}
                 disabled={isEscalating}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-1.5"
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-rose-600/30 flex items-center gap-1.5"
               >
                 <Send className="w-3.5 h-3.5" />
-                {isEscalating ? 'Transmitting...' : 'Transmit Emergency Escalation'}
+                {isEscalating ? 'Dispatching...' : 'Dispatch & Escalate Agency'}
               </button>
             </div>
           </div>

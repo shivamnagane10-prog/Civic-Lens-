@@ -349,9 +349,104 @@ def seed_cctv_system(db: Session):
     db.commit()
 
 
+def ensure_multi_category_recordings_seeded(db: Session):
+    existing_rec = db.query(RecordingModel).filter(RecordingModel.id == "REC-DEMO-TRAFFIC").first()
+    if existing_rec:
+        return
+
+    now = datetime.now(timezone.utc)
+    demo_specs = [
+        ("REC-DEMO-TRAFFIC", "CAM-DL-101", "http://localhost:8000/uploads/demo_traffic_safety.mp4", "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80", 1.1, "traffic_safety", "vehicle_congestion", "Deep urban traffic congestion and stationary queue formation detected.", 0.94, 6, "high", False, [
+            "Vehicular velocity drop < 4 km/h across 3 transit lanes",
+            "Continuous queue backlog extending beyond 60m intersection radius",
+            "Normal traffic flow recognized as baseline; persistent stoppage triggered threshold"
+        ]),
+        ("REC-DEMO-GARBAGE", "CAM-MH-201", "http://localhost:8000/uploads/demo_garbage_waste.mp4", "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=600&q=80", 1.0, "garbage_waste", "garbage_pile_accumulation", "Substantial waste bag pile and overflowing container refuse accumulating near pedestrian sidewalk.", 0.91, 5, "medium", False, [
+            "Stationary ground-level organic & plastic refuse cluster spanning > 3.8 sq meters",
+            "Temporal comparison: refuse volume accumulated over consecutive frame intervals",
+            "Absence of scheduled municipal collection receptacle at monitored corner"
+        ]),
+        ("REC-DEMO-WATERLOG", "CAM-MH-401", "http://localhost:8000/uploads/demo_waterlogging_flood.mp4", "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80", 3.2, "waterlogging_flood", "standing_water_roadway", "Extensive surface water ponding and clogged stormwater inlet causing significant traffic deceleration.", 0.93, 4, "high", False, [
+            "Specular reflection & low-variance ground sheen covering > 28 sq meters of roadway",
+            "Vehicle tire spray and water displacement observed during traffic transit",
+            "Persistent standing pool depth estimated > 15cm; field verification recommended"
+        ]),
+        ("REC-DEMO-ROADDAMAGE", "CAM-DL-102", "http://localhost:8000/uploads/demo_road_damage.mp4", "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80", 1.1, "road_damage", "deep_pothole", "Deep asphalt cavity and surface pavement fracture detected in central transit lane.", 0.95, 7, "high", False, [
+            "Morphological dark cavity depression with structural edge fissure > 14cm",
+            "Repeated two-wheeler evasive swerving detected around rupture perimeter",
+            "High impact damage risk for public transit buses and light vehicles"
+        ]),
+        ("REC-DEMO-ASSAULT", "CAM-KA-301", "http://localhost:8000/uploads/demo_assault_violence.mp4", "https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=600&q=80", 1.3, "assault_violence", "potential_physical_assault", "Observable rapid physical altercation: high-velocity striking motions and forceful struggle detected.", 0.92, 6, "critical", False, [
+            "Temporal optical flow: sudden violent opposing kinetic energy vectors (jerk > 4.2 m/s²)",
+            "Aggressive physical grappling and shoving lasting > 6 seconds",
+            "Adjacent pedestrians rapidly clearing the altercation perimeter",
+            "Neutral review classification: Potential Physical Assault — Authorized Human Review Required"
+        ]),
+        ("REC-DEMO-FORCEDMOVE", "CAM-MH-202", "http://localhost:8000/uploads/demo_forced_movement.mp4", "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80", 1.1, "forced_movement", "potential_forced_movement", "Observable physical interaction: individual restrained and forcibly guided along roadway toward vehicle.", 0.89, 5, "critical", False, [
+            "Physical restraint trajectory: backward-leaning resistance posture with continuous arm grip",
+            "Constrained directional path incongruent with voluntary pedestrian flow",
+            "Synchronized vehicle door access observed at intercept locus",
+            "Neutral review classification: Possible Forced Movement — Urgent Human Review"
+        ]),
+        ("REC-DEMO-SENSITIVE", "CAM-MH-201", "http://localhost:8000/uploads/demo_sensitive_incident.mp4", "https://images.unsplash.com/photo-1509114397022-ed747cca3f65?auto=format&fit=crop&w=600&q=80", 1.1, "sexual_violence_sensitive", "potential_sexual_violence_indicator", "Observable coercive physical contact and forceful restraint in isolated corridor. Restricted early-warning safeguarding review.", 0.88, 4, "critical", True, [
+            "Coercive physical holding and distress indicators in shadowed perimeter zone",
+            "Multi-frame temporal struggle with physical containment",
+            "Restricted Safeguarding Classification: Possible Sexual Violence — Restricted Review",
+            "Strict audit logging and supervisor credentials enforced for original evidence access"
+        ]),
+        ("REC-DEMO-COLLAPSE", "CAM-DL-101", "http://localhost:8000/uploads/demo_pedestrian_collapse.mp4", "https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=600&q=80", 1.0, "other_public_safety", "medical_collapse_fall", "Sudden uncontrolled downward descent and unresponsiveness: pedestrian collapsed onto transit walkway.", 0.93, 8, "critical", False, [
+            "Rapid vertical centroid descent (> 2.8 m/s²) without normal postural recovery",
+            "Individual stationary in recumbent posture for > 20 seconds",
+            "Surrounding bystanders gathering and signaling for emergency response"
+        ]),
+    ]
+
+    for rec_id, cam_id, v_url, thumb_url, sz_mb, cat, etype, desc, conf, offset, prio, is_restr, indicators in demo_specs:
+        rec = RecordingModel(
+            id=rec_id,
+            camera_id=cam_id,
+            start_time=now - timedelta(minutes=15),
+            end_time=now,
+            duration_seconds=12,
+            video_url=v_url,
+            thumbnail_url=thumb_url,
+            file_size_mb=sz_mb,
+            is_demo=True,
+            created_at=now
+        )
+        db.add(rec)
+
+        det = CctvDetectionModel(
+            id=f"EVT-SEED-{rec_id.split('-')[-1]}",
+            camera_id=cam_id,
+            recording_id=rec_id,
+            category=cat,
+            event_type=etype,
+            confidence=conf,
+            timestamp_offset_seconds=offset,
+            incident_time=now - timedelta(minutes=10),
+            snapshot_url=thumb_url,
+            video_url=v_url,
+            description=desc,
+            observable_indicators=json.dumps(indicators),
+            priority=prio,
+            review_status="pending_review",
+            model_name=f"CivicLens-{cat.split('_')[0].capitalize()}Net-v2.2",
+            model_version="2.2.0",
+            bounding_box=json.dumps({"x": 350, "y": 420, "w": 280, "h": 200}),
+            is_restricted=is_restr,
+            validation_metrics=json.dumps({"precision": 0.93, "recall": 0.91, "f1_score": 0.92, "false_positive_rate": 0.04}),
+            created_at=now
+        )
+        db.add(det)
+
+    db.commit()
+
+
 def seed_database(db: Session):
     # Check and seed CCTV system
     seed_cctv_system(db)
+    ensure_multi_category_recordings_seeded(db)
 
     # Check if Indian wards are already seeded
     existing_delhi = db.query(WardModel).filter(WardModel.id == "WARD-DL-01").first()

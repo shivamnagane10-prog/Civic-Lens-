@@ -22,7 +22,8 @@ import {
   CctvCoverageGap,
   CctvCoverageZone,
   SatelliteFinding,
-  CameraPlacementRecommendation
+  CameraPlacementRecommendation,
+  AiModelInfo,
 } from '@civiclens/shared-types';
 
 
@@ -377,6 +378,32 @@ export class ApiClient {
         notes,
         agency_reference_id: agencyRef,
       }),
+    });
+  }
+
+  async getAiModels(): Promise<AiModelInfo[]> {
+    return this.request<AiModelInfo[]>('/cctv/models');
+  }
+
+  async analyzeVideoMultiCategory(payload: {
+    camera_id: string;
+    recording_id?: string;
+    video_url?: string;
+    categories?: string[];
+    confidence_threshold?: number;
+    sample_interval_seconds?: number;
+    include_restricted?: boolean;
+  }): Promise<{
+    status: string;
+    message: string;
+    duration_ms: number;
+    frames_analyzed: number;
+    video_duration_seconds: number;
+    detections: CctvDetection[];
+  }> {
+    return this.request('/cctv/analyze-video', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 

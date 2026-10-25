@@ -22,8 +22,10 @@ from app.schemas.cctv import (
     IncidentReportResponse,
     EscalateIncidentRequest,
     AnalyzeVideoRequest,
+    AnalyzeVideoMultiCategoryRequest,
 )
 from app.services.websocket_manager import ws_manager
+from app.ml.video_intelligence import VideoIntelligenceEngine, MODEL_CATALOG
 
 router = APIRouter(prefix="/cctv", tags=["CCTV & AI Public Safety Monitoring"])
 
@@ -75,7 +77,21 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
         try:
             indicators = json.loads(det.observable_indicators)
         except Exception:
-            indicators = []
+            indicators = [det.observable_indicators]
+
+    bbox = None
+    if getattr(det, "bounding_box", None):
+        try:
+            bbox = json.loads(det.bounding_box)
+        except Exception:
+            bbox = None
+
+    metrics = None
+    if getattr(det, "validation_metrics", None):
+        try:
+            metrics = json.loads(det.validation_metrics)
+        except Exception:
+            metrics = None
 
     return {
         "id": det.id,
@@ -100,6 +116,11 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
         "reviewed_at": det.reviewed_at,
         "complaint_id": det.complaint_id,
         "incident_report_id": det.incident_report_id,
+        "model_name": getattr(det, "model_name", "CivicLens-MultiVision-v2.2") or "CivicLens-MultiVision-v2.2",
+        "model_version": getattr(det, "model_version", "2.2.0") or "2.2.0",
+        "bounding_box": bbox,
+        "is_restricted": bool(getattr(det, "is_restricted", False)),
+        "validation_metrics": metrics,
         "created_at": det.created_at,
     }
 
@@ -284,6 +305,12 @@ async def upload_demo_recording(
 # 3. AI Detections & Evidence Retrieval
 # ==========================================
 
+@router.get("/models")
+def get_ai_models():
+    """Retrieve full catalog of multi-category AI detection models and validation metrics."""
+    return VideoIntelligenceEngine.get_models_catalog()
+
+
 @router.get("/detections", response_model=List[CctvDetectionResponse])
 def get_detections(
     category: Optional[str] = None,
@@ -291,21 +318,39 @@ def get_detections(
     review_status: Optional[str] = None,
     priority: Optional[str] = None,
     camera_id: Optional[str] = None,
+    recording_id: Optional[str] = None,
+    min_confidence: Optional[float] = None,
+    include_restricted: Optional[bool] = True,
+    q: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    """Retrieve AI-detected civic and public safety events with timeline markers and evidence."""
+    """Retrieve AI-detected multi-category civic and public safety events with timeline markers and evidence."""
     query = db.query(CctvDetectionModel)
-    if category:
-        query = query.filter(CctvDetectionModel.category == category)
-    if event_type:
+    if category and category != "all":
+        # Support grouping or exact category
+        query = query.filter((CctvDetectionModel.category == category) | (CctvDetectionModel.event_type == category))
+    if event_type and event_type != "all":
         query = query.filter(CctvDetectionModel.event_type == event_type)
-    if review_status:
+    if review_status and review_status != "all":
         query = query.filter(CctvDetectionModel.review_status == review_status)
-    if priority:
+    if priority and priority != "all":
         query = query.filter(CctvDetectionModel.priority == priority)
     if camera_id:
         query = query.filter(CctvDetectionModel.camera_id == camera_id)
+    if recording_id:
+        query = query.filter(CctvDetectionModel.recording_id == recording_id)
+    if min_confidence:
+        query = query.filter(CctvDetectionModel.confidence >= min_confidence)
+    if not include_restricted:
+        query = query.filter(CctvDetectionModel.is_restricted == False)
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            (CctvDetectionModel.description.ilike(search)) |
+            (CctvDetectionModel.event_type.ilike(search)) |
+            (CctvDetectionModel.id.ilike(search))
+        )
 
     detections = query.order_by(CctvDetectionModel.incident_time.desc()).limit(limit).all()
     return [_detection_to_response(d, db) for d in detections]
@@ -332,7 +377,7 @@ async def review_detection(
 ):
     """
     Mandatory human triage step:
-    Set review status to 'verified', 'inconclusive', or 'false_positive'.
+    Set review status to 'verified', 'inconclusive', 'false_positive', 'escalated', or 'closed'.
     Logs reviewer identity, notes, and timestamp for audit compliance.
     """
     det = db.query(CctvDetectionModel).filter(CctvDetectionModel.id == detection_id).first()
@@ -356,27 +401,47 @@ async def create_complaint_from_detection(
     db: Session = Depends(get_db)
 ):
     """
-    Fork A: Route a verified civic infrastructure detection (pothole, waterlogging, garbage)
+    Fork A: Route a verified civic infrastructure detection (pothole, waterlogging, garbage, traffic)
     directly into the existing CivicLens AI municipal complaint workflow.
-    Appears immediately in Corporator portal as 'submitted' for budget sanction and crew dispatch!
+    Public safety & violence events are strictly barred from routine complaints and routed to formal Incident Reports.
     """
     det = db.query(CctvDetectionModel).filter(CctvDetectionModel.id == detection_id).first()
     if not det:
         raise HTTPException(status_code=404, detail=f"Detection {detection_id} not found")
 
+    # Safety check: Prevent assault/forced movement/sensitive from being routed as civic complaint
+    if det.category in ["assault_violence", "forced_movement", "sexual_violence_sensitive"] or getattr(det, "is_restricted", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Public safety, physical violence, and sensitive incidents cannot be submitted as routine municipal repair complaints. Please use the formal Incident Report & Emergency Escalation workflow."
+        )
+
     cam = db.query(CameraModel).filter(CameraModel.id == det.camera_id).first()
     ward_id = payload.ward_id or (cam.ward_id if cam else "WARD-DL-01")
 
-    # Map CCTV event type to Issue category
+    # Map CCTV category & event type to Issue category
     cat_mapping = {
         "pothole": "pothole",
+        "deep_pothole": "pothole",
+        "surface_cracking_network": "road_damage",
+        "broken_road_edge": "road_damage",
         "road_damage": "road_damage",
         "garbage": "garbage",
+        "garbage_waste": "garbage",
+        "garbage_pile_accumulation": "garbage",
+        "overflowing_waste_bin": "garbage",
+        "discarded_waste_bags": "garbage",
         "waterlogging": "drainage",
+        "waterlogging_flood": "drainage",
+        "standing_water_roadway": "drainage",
+        "waterlogged_sidewalk": "drainage",
         "fallen_tree": "road_damage",
         "traffic_accident": "road_damage",
+        "traffic_safety": "road_damage",
+        "vehicle_congestion": "road_damage",
+        "roadway_obstruction": "road_damage",
     }
-    issue_cat = cat_mapping.get(det.event_type, "pothole")
+    issue_cat = cat_mapping.get(det.event_type, cat_mapping.get(det.category, "pothole"))
 
     # Construct standard issue
     title = payload.title or f"CCTV Auto-Detection: {det.description[:60]}"
@@ -579,75 +644,144 @@ def escalate_incident(
 
 
 # ==========================================
-# 6. Real-Time AI Video Analysis Engine
+# 6. Real-Time Multi-Category AI Video Intelligence Engine
 # ==========================================
 
-@router.post("/analyze")
-def run_ai_video_analysis(payload: AnalyzeVideoRequest, db: Session = Depends(get_db)):
+@router.post("/analyze-video")
+async def run_multi_category_video_analysis(
+    payload: AnalyzeVideoMultiCategoryRequest,
+    db: Session = Depends(get_db)
+):
     """
-    Simulates / triggers the AI video analysis engine on a live stream or recording.
-    Detects observable anomalies and inserts structured event frames into the incident queue.
+    Centralized Multi-Category AI Video Intelligence Engine:
+    Processes authorized live CCTV streams or historical video recordings across specialized pipelines:
+    - Traffic and Road Safety (congestion, accidents, obstructions, vehicle & pedestrian tracking)
+    - Garbage and Waste Management (accumulation, overflowing bins, temporal change)
+    - Waterlogging and Flooding (standing water, runoff, reflections)
+    - Road Damage and Infrastructure (potholes, pavement fractures, broken curbs)
+    - Potential Assault and Physical Violence (action recognition, kinetic energy bursts)
+    - Potential Kidnapping or Forced Movement (coercive displacement trajectory analysis)
+    - Potential Sexual Violence (restricted safeguarding early-warning with strict audit controls)
+    - Other Public-Safety Events (pedestrian collapse, crowd surge bottlenecks)
     """
     cam = db.query(CameraModel).filter(CameraModel.id == payload.camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail=f"Camera {payload.camera_id} not found")
 
-    now = datetime.now(timezone.utc)
-    offset_seconds = 18
+    rec = None
+    video_source = payload.video_url
+    if payload.recording_id:
+        rec = db.query(RecordingModel).filter(RecordingModel.id == payload.recording_id).first()
+        if rec and not video_source:
+            video_source = rec.video_url
 
-    # Focus selection
-    if payload.analysis_focus == "civic_infrastructure" or (payload.analysis_focus == "all" and "Radial" in cam.name):
-        det = CctvDetectionModel(
-            id=f"EVT-CIVIC-{uuid.uuid4().hex[:6].upper()}",
-            camera_id=cam.id,
-            recording_id=payload.recording_id,
-            category="civic_infrastructure",
-            event_type="pothole",
-            confidence=0.94,
-            timestamp_offset_seconds=offset_seconds,
-            incident_time=now - timedelta(seconds=offset_seconds),
-            snapshot_url="https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80",
-            video_url=payload.video_url or cam.stream_url,
-            description="Deep asphalt surface rupture detected on inner lane with heavy bus traffic.",
-            observable_indicators=json.dumps([
-                "Asphalt structural depression > 14cm",
-                "Repeated vehicular wheel deflection",
-                "High road impact risk for two-wheelers"
-            ]),
-            priority="high",
-            review_status="pending_review",
-            created_at=now
-        )
-    else:
-        det = CctvDetectionModel(
-            id=f"EVT-SAFE-{uuid.uuid4().hex[:6].upper()}",
-            camera_id=cam.id,
-            recording_id=payload.recording_id,
-            category="public_safety",
-            event_type="potential_assault",
-            confidence=0.91,
-            timestamp_offset_seconds=offset_seconds,
-            incident_time=now - timedelta(seconds=offset_seconds),
-            snapshot_url="https://images.unsplash.com/photo-1508847154043-be5407fcaa5a?auto=format&fit=crop&w=800&q=80",
-            video_url=payload.video_url or cam.stream_url,
-            description="Observable physical altercation: rapid aggressive pushing motions between multiple individuals.",
-            observable_indicators=json.dumps([
-                "Sudden abrupt physical struggle lasting > 8 seconds",
-                "Forceful pushing against storefront perimeter",
-                "Pedestrian crowd rapidly dispersing away from locus"
-            ]),
-            priority="critical",
-            review_status="pending_review",
-            created_at=now
-        )
+    if not video_source:
+        video_source = cam.stream_url
 
-    db.add(det)
-    db.commit()
-    db.refresh(det)
+    analysis_res = VideoIntelligenceEngine.run_multi_category_analysis(
+        video_source=video_source,
+        camera=cam,
+        recording_id=payload.recording_id,
+        categories=payload.categories,
+        confidence_threshold=payload.confidence_threshold or 0.70,
+        sample_interval_seconds=payload.sample_interval_seconds or 1.0,
+        include_restricted=payload.include_restricted if payload.include_restricted is not None else True
+    )
+
+    created_detections = []
+    for d_data in analysis_res["detections"]:
+        # Duplicate prevention check: do not recreate identical detection
+        existing = db.query(CctvDetectionModel).filter(
+            CctvDetectionModel.camera_id == cam.id,
+            CctvDetectionModel.event_type == d_data["event_type"],
+            CctvDetectionModel.timestamp_offset_seconds == d_data["timestamp_offset_seconds"]
+        ).first()
+
+        if not existing:
+            det = CctvDetectionModel(
+                id=d_data["id"],
+                camera_id=cam.id,
+                recording_id=payload.recording_id,
+                category=d_data["category"],
+                event_type=d_data["event_type"],
+                confidence=d_data["confidence"],
+                timestamp_offset_seconds=d_data["timestamp_offset_seconds"],
+                incident_time=datetime.fromisoformat(d_data["incident_time"]),
+                snapshot_url=d_data["snapshot_url"],
+                video_url=d_data["video_url"],
+                description=d_data["description"],
+                observable_indicators=json.dumps(d_data["observable_indicators"]),
+                priority=d_data["priority"],
+                review_status="pending_review",
+                model_name=d_data["model_name"],
+                model_version=d_data["model_version"],
+                bounding_box=json.dumps(d_data["bounding_box"]) if d_data.get("bounding_box") else None,
+                is_restricted=d_data["is_restricted"],
+                validation_metrics=json.dumps(d_data["validation_metrics"]) if d_data.get("validation_metrics") else None,
+                created_at=datetime.fromisoformat(d_data["created_at"])
+            )
+            db.add(det)
+            created_detections.append(det)
+
+    if created_detections:
+        db.commit()
+        for det in created_detections:
+            db.refresh(det)
+
+    all_responses = []
+    for d_data in analysis_res["detections"]:
+        saved = db.query(CctvDetectionModel).filter(CctvDetectionModel.id == d_data["id"]).first()
+        if saved:
+            all_responses.append(_detection_to_response(saved, db))
+        else:
+            all_responses.append(d_data)
+
+    # Broadcast real-time websocket event
+    await ws_manager.broadcast("CCTV_DETECTION_CREATED", {
+        "camera_id": cam.id,
+        "camera_name": cam.name,
+        "detections_count": len(all_responses),
+        "latest_event": all_responses[0]["event_type"] if all_responses else None
+    })
 
     return {
         "status": "success",
-        "message": f"AI temporal video scan complete for {cam.name}",
-        "detection": _detection_to_response(det, db)
+        "message": analysis_res["message"],
+        "duration_ms": analysis_res["duration_ms"],
+        "frames_analyzed": analysis_res["frames_analyzed"],
+        "video_duration_seconds": analysis_res["video_duration_seconds"],
+        "detections": all_responses
+    }
+
+
+@router.post("/analyze")
+async def run_ai_video_analysis(payload: AnalyzeVideoRequest, db: Session = Depends(get_db)):
+    """
+    Backward-compatible trigger endpoint: routes into the Multi-Category Video Intelligence Engine.
+    """
+    mapped_categories = list(MODEL_CATALOG.keys())
+    if payload.analysis_focus == "civic_infrastructure":
+        mapped_categories = ["traffic_safety", "garbage_waste", "waterlogging_flood", "road_damage"]
+    elif payload.analysis_focus == "public_safety":
+        mapped_categories = ["assault_violence", "forced_movement", "sexual_violence_sensitive", "other_public_safety"]
+
+    res = await run_multi_category_video_analysis(
+        AnalyzeVideoMultiCategoryRequest(
+            camera_id=payload.camera_id,
+            recording_id=payload.recording_id,
+            video_url=payload.video_url,
+            categories=mapped_categories,
+            confidence_threshold=0.70,
+            sample_interval_seconds=1.0,
+            include_restricted=True
+        ),
+        db=db
+    )
+    first_det = res["detections"][0] if res["detections"] else None
+    return {
+        "status": "success",
+        "message": res["message"],
+        "detection": first_det,
+        "detections": res["detections"]
     }
 

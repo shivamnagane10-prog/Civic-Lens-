@@ -251,7 +251,17 @@ export interface RecordingSegment {
   created_at: string;
 }
 
-export type DetectionCategory = 'civic_infrastructure' | 'public_safety';
+export type DetectionCategory =
+  | 'traffic_safety'
+  | 'garbage_waste'
+  | 'waterlogging_flood'
+  | 'road_damage'
+  | 'assault_violence'
+  | 'forced_movement'
+  | 'sexual_violence_sensitive'
+  | 'other_public_safety'
+  | 'civic_infrastructure'
+  | 'public_safety';
 
 export type DetectionEventType =
   | 'pothole'
@@ -265,9 +275,41 @@ export type DetectionEventType =
   | 'potential_harassment'
   | 'potential_sexual_violence_indicator'
   | 'medical_collapse'
-  | 'crowd_surge';
+  | 'crowd_surge'
+  | 'vehicle_congestion'
+  | 'roadway_obstruction'
+  | 'wrong_way_hazard'
+  | 'garbage_pile_accumulation'
+  | 'overflowing_waste_bin'
+  | 'discarded_waste_bags'
+  | 'illegal_dumping_activity'
+  | 'standing_water_roadway'
+  | 'waterlogged_sidewalk'
+  | 'storm_drain_overflow'
+  | 'spreading_surface_water'
+  | 'deep_pothole'
+  | 'surface_cracking_network'
+  | 'broken_road_edge'
+  | 'damaged_sidewalk_paver'
+  | 'damaged_infrastructure_fixture'
+  | 'potential_physical_assault'
+  | 'physical_struggle_altercation'
+  | 'group_violence_indicator'
+  | 'fall_during_altercation'
+  | 'physical_restraint_displacement'
+  | 'coercive_interaction'
+  | 'coercive_physical_restraint'
+  | 'medical_collapse_fall'
+  | 'crowd_surge_bottleneck'
+  | 'emergency_corridor_obstruction';
 
-export type DetectionReviewStatus = 'pending_review' | 'verified' | 'inconclusive' | 'false_positive';
+export type DetectionReviewStatus =
+  | 'pending_review'
+  | 'verified'
+  | 'inconclusive'
+  | 'false_positive'
+  | 'escalated'
+  | 'closed';
 
 export interface CctvDetection {
   id: string;
@@ -277,7 +319,7 @@ export interface CctvDetection {
   ward_id: string;
   recording_id?: string | null;
   category: DetectionCategory;
-  event_type: DetectionEventType;
+  event_type: DetectionEventType | string;
   confidence: number;
   timestamp_offset_seconds: number;
   incident_time: string;
@@ -292,7 +334,33 @@ export interface CctvDetection {
   reviewed_at?: string | null;
   complaint_id?: string | null;
   incident_report_id?: string | null;
+  model_name?: string;
+  model_version?: string;
+  bounding_box?: { x: number; y: number; w: number; h: number } | null;
+  is_restricted?: boolean;
+  validation_metrics?: Record<string, any> | null;
   created_at: string;
+}
+
+export interface AiModelInfo {
+  category_id: DetectionCategory;
+  name: string;
+  model_id: string;
+  model_version: string;
+  subcategories: string[];
+  default_threshold: number;
+  sampling_interval_seconds: number;
+  is_restricted: boolean;
+  supported_conditions: string[];
+  known_limitations: string;
+  validation_metrics: {
+    precision: number;
+    recall: number;
+    f1_score: number;
+    false_positive_rate: number;
+    missed_detection_rate: number;
+    tested_frames: number;
+  };
 }
 
 export type EscalationAgency =
