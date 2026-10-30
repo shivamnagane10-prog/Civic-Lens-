@@ -17,6 +17,8 @@ import { CctvMonitoring } from '../components/CctvMonitoring';
 import { RecordedFootageView } from '../components/RecordedFootageView';
 import { AiIncidentCenter } from '../components/AiIncidentCenter';
 import { SatelliteMultispectralDashboard } from '../components/SatelliteMultispectralDashboard';
+import { AuthModal } from '../components/AuthModal';
+import { PolicePortal } from '../components/PolicePortal';
 import {
   Shield,
   Layers,
@@ -36,15 +38,39 @@ import {
   Video,
   Film,
   ShieldAlert,
-  Database
+  Database,
+  LogIn,
+  LogOut,
+  UserCheck,
+  Lock
 } from 'lucide-react';
 
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<
-    'corporator' | 'engineer' | 'crew' | 'citizen' | 'map' | 'public' | 'cctv' | 'footage' | 'ai_incidents' | 'satellite'
-  >('corporator');
-  const [currentRole, setCurrentRole] = useState<UserRole>('admin');
+    'corporator' | 'engineer' | 'crew' | 'citizen' | 'map' | 'public' | 'cctv' | 'footage' | 'ai_incidents' | 'satellite' | 'police'
+  >('engineer');
+  const [currentRole, setCurrentRole] = useState<UserRole>('engineer');
+  const [currentUser, setCurrentUser] = useState<{
+    id: string;
+    phone: string;
+    role: UserRole;
+    name?: string | null;
+    email?: string | null;
+    ward_id?: string | null;
+    police_badge_id?: string | null;
+    department?: string | null;
+  }>({
+    id: 'usr-eng-01',
+    phone: '+919876543211',
+    role: 'engineer',
+    name: 'Chief Engr. Priya Nair',
+    email: 'engineer@civiclens.gov.in',
+    ward_id: 'WARD-DL-01',
+    department: 'Municipal Works & Infrastructure'
+  });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   const [wards, setWards] = useState<Ward[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [crews, setCrews] = useState<Crew[]>([]);
@@ -77,18 +103,127 @@ export default function Home() {
     setActiveTab('footage');
   };
 
+  // RBAC Access Matrix
+  const isTabPermitted = (tab: string, role: UserRole): boolean => {
+    if (role === 'admin' || role === 'engineer') return true; // Full / Cross-portal operational access per architecture
+    if (role === 'citizen') {
+      return tab === 'citizen' || tab === 'public' || tab === 'footage';
+    }
+    if (role === 'corporator') {
+      return tab === 'corporator' || tab === 'map' || tab === 'public' || tab === 'satellite';
+    }
+    if (role === 'crew') {
+      return tab === 'crew' || tab === 'map';
+    }
+    if (role === 'police') {
+      return tab === 'police' || tab === 'footage' || tab === 'ai_incidents';
+    }
+    return false;
+  };
 
-  // Synchronize activeTab whenever role dropdown is changed
+  const handleSelectTab = (tab: any) => {
+    if (!isTabPermitted(tab, currentRole)) {
+      setLiveBanner(`⚠️ Access Restricted: User role [${currentRole.toUpperCase()}] is not authorized for ${tab.toUpperCase()} portal.`);
+      setTimeout(() => setLiveBanner(null), 4000);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  // Synchronize activeTab and mock profile whenever role is changed
   const handleRoleChange = (role: UserRole) => {
     setCurrentRole(role);
     if (role === 'admin') {
+      setCurrentUser({
+        id: 'usr-adm-01',
+        phone: '+919876543214',
+        role: 'admin',
+        name: 'Administrator Anand Verma',
+        email: 'admin@civiclens.gov.in',
+        department: 'Municipal IT Administration'
+      });
       setActiveTab('corporator');
+    } else if (role === 'corporator') {
+      setCurrentUser({
+        id: 'usr-corp-01',
+        phone: '+919876543210',
+        role: 'corporator',
+        name: 'Corporator Rajesh Sharma',
+        email: 'corporator@civiclens.gov.in',
+        department: 'Ward Governance Council'
+      });
+      setActiveTab('corporator');
+    } else if (role === 'engineer') {
+      setCurrentUser({
+        id: 'usr-eng-01',
+        phone: '+919876543211',
+        role: 'engineer',
+        name: 'Chief Engr. Priya Nair',
+        email: 'engineer@civiclens.gov.in',
+        department: 'Municipal Works & Infrastructure'
+      });
+      setActiveTab('engineer');
+    } else if (role === 'crew') {
+      setCurrentUser({
+        id: 'usr-crew-01',
+        phone: '+919876543212',
+        role: 'crew',
+        name: 'Rapid Response Crew 01',
+        email: 'crew@civiclens.gov.in',
+        department: 'Roads & Stormwater Operations'
+      });
+      setActiveTab('crew');
+    } else if (role === 'police') {
+      setCurrentUser({
+        id: 'usr-pol-01',
+        phone: '+919876543213',
+        role: 'police',
+        name: 'Inspector Vikram Rathore',
+        email: 'cyberpolice@delhipolice.gov.in',
+        police_badge_id: 'DL-CYBER-8842',
+        department: 'Cyber Crime & Video Surveillance Division'
+      });
+      setActiveTab('police');
+    } else if (role === 'citizen') {
+      setCurrentUser({
+        id: 'usr-cit-01',
+        phone: '+919876543215',
+        role: 'citizen',
+        name: 'Aarav Mehta (Citizen)',
+        email: 'aarav.mehta@gmail.com',
+        ward_id: 'WARD-DL-01'
+      });
+      setActiveTab('citizen');
+    }
+  };
+
+  const handleAuthSuccess = (tokenData: any) => {
+    const role = (tokenData.role as UserRole) || 'citizen';
+    setCurrentRole(role);
+    setCurrentUser({
+      id: tokenData.user_id,
+      phone: tokenData.phone,
+      role: role,
+      name: tokenData.name,
+      email: tokenData.email,
+      ward_id: tokenData.ward_id,
+      police_badge_id: tokenData.police_badge_id,
+      department: tokenData.department,
+    });
+    setLiveBanner(`🔑 Authenticated as ${role.toUpperCase()}: ${tokenData.name || tokenData.phone}`);
+    setTimeout(() => setLiveBanner(null), 5000);
+
+    // Route to permitted portal
+    if (role === 'police') {
+      setActiveTab('police');
+    } else if (role === 'citizen') {
+      setActiveTab('citizen');
     } else if (role === 'engineer') {
       setActiveTab('engineer');
     } else if (role === 'crew') {
       setActiveTab('crew');
-    } else if (role === 'citizen') {
-      setActiveTab('citizen');
+    } else {
+      setActiveTab('corporator');
     }
   };
 
@@ -529,52 +664,46 @@ export default function Home() {
               className="flex flex-nowrap items-center gap-0.5 sm:gap-1 bg-slate-900/95 p-1 rounded-xl border border-slate-800 overflow-x-auto no-scrollbar whitespace-nowrap min-w-0 max-w-full"
             >
               <button
-                onClick={() => {
-                  setActiveTab('corporator');
-                  setCurrentRole('admin');
-                }}
+                onClick={() => handleSelectTab('corporator')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'corporator'
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('corporator', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Landmark className="w-3.5 h-3.5 flex-shrink-0" /> Corporator
               </button>
 
               <button
-                onClick={() => {
-                  setActiveTab('engineer');
-                  setCurrentRole('engineer');
-                }}
+                onClick={() => handleSelectTab('engineer')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'engineer'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('engineer', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Wrench className="w-3.5 h-3.5 flex-shrink-0" /> Engineer
               </button>
 
               <button
-                onClick={() => {
-                  setActiveTab('crew');
-                  setCurrentRole('crew');
-                }}
+                onClick={() => handleSelectTab('crew')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'crew'
                     ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('crew', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Truck className="w-3.5 h-3.5 flex-shrink-0" /> Field Crew
               </button>
 
               <button
-                onClick={() => {
-                  setActiveTab('citizen');
-                  setCurrentRole('citizen');
-                }}
+                onClick={() => handleSelectTab('citizen')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'citizen'
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
@@ -585,18 +714,20 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => setActiveTab('map')}
+                onClick={() => handleSelectTab('map')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'map'
                     ? 'bg-slate-800 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('map', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5 flex-shrink-0" /> Spatial Map
               </button>
 
               <button
-                onClick={() => setActiveTab('public')}
+                onClick={() => handleSelectTab('public')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'public'
                     ? 'bg-slate-800 text-white shadow-md'
@@ -607,18 +738,20 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => setActiveTab('cctv')}
+                onClick={() => handleSelectTab('cctv')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'cctv'
                     ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md shadow-sky-600/30 font-bold'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('cctv', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Video className="w-3.5 h-3.5 flex-shrink-0 text-sky-400" /> CCTV Surveillance
               </button>
 
               <button
-                onClick={() => setActiveTab('footage')}
+                onClick={() => handleSelectTab('footage')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'footage'
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold'
@@ -629,35 +762,67 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => setActiveTab('ai_incidents')}
+                onClick={() => handleSelectTab('ai_incidents')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'ai_incidents'
                     ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 font-bold'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('ai_incidents', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 text-rose-400" /> AI Incident Center
               </button>
 
               <button
-                onClick={() => setActiveTab('satellite')}
+                onClick={() => handleSelectTab('satellite')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === 'satellite'
                     ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-bold'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : isTabPermitted('satellite', currentRole)
+                    ? 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-400'
                 }`}
               >
                 <Globe className="w-3.5 h-3.5 flex-shrink-0 text-purple-300" /> Satellite Multispectral
               </button>
+
+              {(currentRole === 'police' || currentRole === 'engineer' || currentRole === 'admin') && (
+                <button
+                  onClick={() => handleSelectTab('police')}
+                  className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] xl:text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap ${
+                    activeTab === 'police'
+                      ? 'bg-rose-700 text-white shadow-md shadow-rose-700/30 font-bold'
+                      : 'text-rose-400 hover:text-rose-200'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 text-rose-400" /> Police Evidence
+                </button>
+              )}
             </nav>
           </div>
 
-          {/* Role Switcher & Live WS Indicator */}
+          {/* User Profile, Role Switcher & Live WS Indicator */}
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 whitespace-nowrap">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-              Live Telemetry
-            </div>
+            {/* User Profile Pill & Sign-In Trigger */}
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              title="Click to sign in or switch account"
+              className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 hover:border-sky-500/60 transition-all text-xs"
+            >
+              <div className="w-5 h-5 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-[10px]">
+                {currentUser.role === 'police' ? '🛡️' : currentUser.role === 'engineer' ? '👷' : currentUser.role === 'corporator' ? '🏛️' : currentUser.role === 'crew' ? '🛠️' : '📱'}
+              </div>
+              <div className="hidden sm:block text-left">
+                <span className="text-[11px] font-bold text-white block leading-tight truncate max-w-[110px]">
+                  {currentUser.name || currentUser.phone}
+                </span>
+                <span className="text-[9px] text-sky-400 capitalize block leading-none font-mono">
+                  {currentUser.role}
+                </span>
+              </div>
+              <LogIn className="w-3.5 h-3.5 text-slate-400 hover:text-sky-400" />
+            </button>
 
             <div className="flex items-center gap-1 text-xs">
               <Users className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
@@ -666,9 +831,11 @@ export default function Home() {
                 onChange={(e) => handleRoleChange(e.target.value as UserRole)}
                 className="bg-slate-900 text-slate-200 text-xs px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-700 focus:outline-none font-medium"
               >
-                <option value="admin">🏛️ Municipal Corporator (Ward Head)</option>
-                <option value="engineer">👷 Municipal Engineer (Technical Tasks)</option>
-                <option value="crew">🛠️ Field Crew (Assigned Problems)</option>
+                <option value="engineer">👷 Municipal Engineer (Cross-Portal Access)</option>
+                <option value="corporator">🏛️ Municipal Corporator (Ward Head)</option>
+                <option value="crew">🛠️ Field Crew (Assigned Tasks)</option>
+                <option value="police">🛡️ Cyber Police (Judicial Vault)</option>
+                <option value="admin">⚙️ Administrator (Full Control)</option>
                 <option value="citizen">📱 Citizen Portal (AI & BOM)</option>
               </select>
             </div>
@@ -786,6 +953,11 @@ export default function Home() {
             wards={wards}
             onApproveWork={handleEngineerApprove}
             onRejectWork={handleEngineerReject}
+            onRequestFurtherInspection={async (id, remarks) => {
+              await api.updateIssueStatus(id, 'rework_required', remarks, 'engineer');
+              await loadData();
+              setLiveBanner(`🔬 Chief Engineer scheduled further inspection for #${id}: "${remarks}"`);
+            }}
             onRefresh={loadData}
           />
         )}
@@ -883,6 +1055,7 @@ export default function Home() {
           <RecordedFootageView
             initialCameraId={selectedCctvCameraId}
             initialSeekSeconds={seekFootageSeconds}
+            userRole={currentRole}
             onOpenIncidentTriage={() => {
               setActiveTab('ai_incidents');
             }}
@@ -921,8 +1094,23 @@ export default function Home() {
             }}
           />
         )}
+
+        {/* 12. Cyber Police & Public Safety Evidence Portal */}
+        {activeTab === 'police' && (
+          <PolicePortal
+            currentUserBadge={currentUser.police_badge_id || 'DL-CYBER-8842'}
+            currentUserName={currentUser.name || 'Inspector Vikram Rathore'}
+            onRefresh={loadData}
+          />
+        )}
       </main>
 
+      {/* Role-Based Authentication & Identity Verification Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
     </div>
   );
 }

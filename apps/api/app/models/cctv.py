@@ -65,7 +65,15 @@ class CctvDetectionModel(Base):
     bounding_box = Column(Text, nullable=True)  # JSON: {"x": .., "y": .., "w": .., "h": ..}
     is_restricted = Column(Boolean, default=False)
     validation_metrics = Column(Text, nullable=True)  # JSON metrics
+    subcategory = Column(String(60), nullable=True)
+    source_type = Column(String(30), default="cctv")
+    source_camera_id = Column(String(36), nullable=True)
+    workflow_type = Column(String(50), default="municipal_infrastructure", index=True)
+    assigned_department = Column(String(100), nullable=True)
+    assigned_user_or_team = Column(String(100), nullable=True)
+    current_status = Column(String(50), default="pending_review", index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class IncidentReportModel(Base):
     __tablename__ = "cctv_incident_reports"
@@ -95,3 +103,24 @@ class IncidentReportModel(Base):
     agency_reference_id = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class AnalysisJobModel(Base):
+    __tablename__ = "cctv_analysis_jobs"
+
+    id = Column(String(36), primary_key=True, default=lambda: f"JOB-{uuid.uuid4().hex[:8].upper()}")
+    recording_id = Column(String(36), ForeignKey("cctv_recordings.id"), nullable=False, index=True)
+    camera_id = Column(String(36), ForeignKey("cctv_cameras.id"), nullable=False)
+    status = Column(String(40), default="not_started", index=True)
+    progress_percent = Column(Integer, default=0)
+    current_step = Column(String(255), nullable=True)
+    categories = Column(Text, nullable=True)  # JSON list of categories
+    frames_analyzed = Column(Integer, default=0)
+    video_duration_seconds = Column(Integer, default=0)
+    original_width = Column(Integer, default=1280)
+    original_height = Column(Integer, default=720)
+    fps = Column(Float, default=30.0)
+    duration_ms = Column(Float, default=0.0)
+    detections_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    completed_at = Column(DateTime, nullable=True)

@@ -24,6 +24,8 @@ class IssueCreate(BaseModel):
     ward_id: Optional[str] = "WARD-01"
     photo_url: Optional[str] = None
     source: Optional[str] = "citizen"
+    department: Optional[str] = None
+    workflow_type: Optional[str] = None
 
 class IssueStatusUpdate(BaseModel):
     status: str  # submitted, reported, acknowledged, assigned, in_progress, awaiting_inspection, rework_required, resolved, rejected
@@ -64,6 +66,8 @@ class IssueResponse(BaseModel):
     source: str
     priority_score: float
     diagnostic_card: Optional[DiagnosticCardSchema] = None
+    department: Optional[str] = None
+    workflow_type: Optional[str] = None
     created_at: datetime
     resolved_at: Optional[datetime] = None
     events: Optional[List[StatusEventResponse]] = None

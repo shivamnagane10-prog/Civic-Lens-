@@ -43,6 +43,11 @@ interface EngineerPortalProps {
     remarks: string,
     workOrderId?: string
   ) => Promise<void>;
+  onRequestFurtherInspection?: (
+    issueId: string,
+    remarks: string,
+    workOrderId?: string
+  ) => Promise<void>;
   onRefresh: () => Promise<void>;
 }
 
@@ -53,6 +58,7 @@ export const EngineerPortal: React.FC<EngineerPortalProps> = ({
   wards,
   onApproveWork,
   onRejectWork,
+  onRequestFurtherInspection,
   onRefresh,
 }) => {
   // Default to tasks awaiting inspection, or first issue
@@ -562,10 +568,36 @@ export const EngineerPortal: React.FC<EngineerPortalProps> = ({
                   type="button"
                   onClick={handleReject}
                   disabled={isSubmitting || selectedIssue.status === 'resolved'}
-                  className="px-6 py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 border border-rose-500/50 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 transition-all shadow-md shadow-rose-950/50 disabled:opacity-50"
+                  className="px-5 py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 border border-rose-500/50 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 transition-all shadow-md shadow-rose-950/50 disabled:opacity-50"
                 >
                   <XCircle className="w-4 h-4 text-rose-400" />
-                  ❌ Reject / Request Rework
+                  ❌ Request Rework
+                </button>
+
+                {/* 🟡 Needs Further Inspection */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (onRequestFurtherInspection) {
+                      await onRequestFurtherInspection(
+                        selectedIssue.id,
+                        remarks || 'Scheduled comprehensive geotechnical core testing / structural analysis.',
+                        associatedWorkOrder?.id
+                      );
+                    } else {
+                      await onRejectWork(
+                        selectedIssue.id,
+                        checklist,
+                        remarks || 'Further inspection / lab analysis required before final signoff',
+                        associatedWorkOrder?.id
+                      );
+                    }
+                  }}
+                  disabled={isSubmitting || selectedIssue.status === 'resolved'}
+                  className="px-5 py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 border border-amber-500/50 bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 transition-all shadow-md shadow-amber-950/50 disabled:opacity-50"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  🔬 Needs Further Inspection
                 </button>
               </div>
             </div>

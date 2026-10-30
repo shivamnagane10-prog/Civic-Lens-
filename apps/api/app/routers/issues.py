@@ -16,6 +16,7 @@ from app.ml.classifier import CivicAIClassifier
 from app.ml.vision_service import CivicVisionService
 from app.services.prioritization_service import PrioritizationService
 from app.services.crew_dispatch_service import haversine_distance_km
+from app.services.workflow_routing_service import WorkflowRoutingEngine
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
@@ -51,6 +52,8 @@ def _format_issue_response(issue: IssueModel, db: Optional[Session] = None) -> d
             for ev in raw_events
         ]
 
+    wf = WorkflowRoutingEngine.get_workflow(issue.category)
+
     return {
         "id": issue.id,
         "reporter_id": issue.reporter_id,
@@ -74,6 +77,8 @@ def _format_issue_response(issue: IssueModel, db: Optional[Session] = None) -> d
         "source": issue.source,
         "priority_score": issue.priority_score,
         "diagnostic_card": diag,
+        "department": getattr(issue, "department", None) or wf["department"],
+        "workflow_type": getattr(issue, "workflow_type", None) or wf["workflow_type"],
         "created_at": issue.created_at,
         "resolved_at": issue.resolved_at,
         "events": events_list if events_list else None
@@ -114,6 +119,9 @@ async def create_issue(
     reporter_id = user.id if user else body.reporter_id
     reporter_phone = user.phone if user else body.reporter_phone
 
+    # Resolve workflow definition for department and workflow_type
+    wf = WorkflowRoutingEngine.get_workflow(detected_category)
+
     new_issue = IssueModel(
         reporter_id=reporter_id,
         reporter_phone=reporter_phone,
@@ -129,7 +137,9 @@ async def create_issue(
         ai_confidence=confidence,
         source=body.source or "citizen",
         priority_score=priority_score,
-        diagnostic_card=json.dumps(diag_card)
+        diagnostic_card=json.dumps(diag_card),
+        department=wf.get("department"),
+        workflow_type=wf.get("workflow_type")
     )
 
     db.add(new_issue)
@@ -217,6 +227,20 @@ async def update_issue_status(
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
 
+    is_valid_user = user and hasattr(user, 'id')
+    actor_id = user.id if is_valid_user else body.actor_id
+    actor_role = user.role if is_valid_user else (body.actor_role or "engineer")
+
+    # Workflow state transition validation
+    is_valid, err_msg = WorkflowRoutingEngine.validate_state_transition(
+        category=issue.category,
+        current_status=issue.status,
+        target_status=body.status,
+        user_role=actor_role
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=err_msg or "Invalid state transition for this category workflow.")
+
     old_status = issue.status
     issue.status = body.status
 
@@ -241,8 +265,9 @@ async def update_issue_status(
         issue.resolved_at = datetime.now(timezone.utc)
 
     # Record status transition event
-    actor_id = user.id if user else body.actor_id
-    actor_role = user.role if user else body.actor_role
+    is_valid_user = user and hasattr(user, 'id')
+    actor_id = user.id if is_valid_user else body.actor_id
+    actor_role = user.role if is_valid_user else body.actor_role
     event = StatusEventModel(
         issue_id=issue.id,
         old_status=old_status,

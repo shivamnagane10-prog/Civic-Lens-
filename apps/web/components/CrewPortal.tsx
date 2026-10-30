@@ -70,8 +70,11 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
 
   const activeCrew = crews.find((c) => c.id === selectedCrewId) || crews[0];
 
-  // Find all issues assigned to this crew (via assigned_crew_id or work orders)
+  // Find all issues assigned to this crew (strictly municipal infrastructure tasks, isolating public safety)
   const myAssignedIssues = issues.filter((i) => {
+    if (['assault_violence', 'sexual_violence_sensitive', 'forced_movement', 'drug_activity', 'other_public_safety', 'traffic_safety'].includes(i.category)) {
+      return false;
+    }
     if (i.assigned_crew_id === activeCrew?.id) return true;
     const wo = workOrders.find((w) => w.issue_id === i.id);
     return wo?.assigned_crew_id === activeCrew?.id;
@@ -363,6 +366,11 @@ export const CrewPortal: React.FC<CrewPortalProps> = ({
                     <span className="text-xs font-mono text-cyan-400 font-bold">
                       #{activeIssue.id}
                     </span>
+                    {activeIssue.department && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/60 text-sky-300 border border-sky-800/60">
+                        {activeIssue.department}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-lg font-black text-white mt-1.5">
                     {activeIssue.title || diagnostic.geometry.title}

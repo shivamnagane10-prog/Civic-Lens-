@@ -24,6 +24,8 @@ import {
   SatelliteFinding,
   CameraPlacementRecommendation,
   AiModelInfo,
+  PoliceEvidencePackage,
+  AnalysisJob,
 } from '@civiclens/shared-types';
 
 
@@ -79,6 +81,14 @@ export class ApiClient {
   }
 
   // Auth
+  logout(): void {
+    this.token = null;
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('civiclens_token');
+      localStorage.removeItem('civiclens_user');
+    }
+  }
+
   async requestOtp(phone: string): Promise<{ success: boolean; message: string; debug_otp: string }> {
     return this.request('/auth/otp/request', {
       method: 'POST',
@@ -95,13 +105,37 @@ export class ApiClient {
     return res;
   }
 
-  async officialLogin(phone: string, role: string): Promise<TokenResponse> {
-    const res = await this.request<TokenResponse>('/auth/login', {
+  async googleAuthVerify(payload: { email: string; name?: string; google_id?: string; picture?: string }): Promise<TokenResponse> {
+    const res = await this.request<TokenResponse>('/auth/google/verify', {
       method: 'POST',
-      body: JSON.stringify({ phone, role }),
+      body: JSON.stringify(payload),
     });
     this.setToken(res.access_token);
     return res;
+  }
+
+  async officialLogin(phone: string, role: string, options?: { identifier?: string; password?: string; police_badge_id?: string; name?: string }): Promise<TokenResponse> {
+    const res = await this.request<TokenResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        phone,
+        role,
+        identifier: options?.identifier || phone,
+        password: options?.password || 'staff123',
+        police_badge_id: options?.police_badge_id,
+        name: options?.name,
+      }),
+    });
+    this.setToken(res.access_token);
+    return res;
+  }
+
+  async getMe(): Promise<any> {
+    return this.request('/auth/me');
+  }
+
+  async getDemoAccounts(): Promise<any[]> {
+    return this.request('/auth/demo-accounts');
   }
 
   // Issues
@@ -296,6 +330,8 @@ export class ApiClient {
     review_status?: string;
     priority?: string;
     camera_id?: string;
+    recording_id?: string;
+    queue?: string;
   }): Promise<CctvDetection[]> {
     const searchParams = new URLSearchParams();
     if (params?.category) searchParams.append('category', params.category);
@@ -303,8 +339,14 @@ export class ApiClient {
     if (params?.review_status) searchParams.append('review_status', params.review_status);
     if (params?.priority) searchParams.append('priority', params.priority);
     if (params?.camera_id) searchParams.append('camera_id', params.camera_id);
+    if (params?.recording_id) searchParams.append('recording_id', params.recording_id);
+    if (params?.queue) searchParams.append('queue', params.queue);
     const qs = searchParams.toString();
     return this.request<CctvDetection[]>(`/cctv/detections${qs ? `?${qs}` : ''}`);
+  }
+
+  async getRecordingAnalysisJob(recordingId: string): Promise<AnalysisJob> {
+    return this.request<AnalysisJob>(`/cctv/recordings/${recordingId}/job`);
   }
 
   async getCctvDetection(id: string): Promise<CctvDetection> {
@@ -475,6 +517,66 @@ export class ApiClient {
     return this.request(`/satellite/findings/${findingId}/create-complaint`, {
       method: 'POST',
       body: JSON.stringify(payload || {}),
+    });
+  }
+
+  // Police Evidence & Public Safety Workflow
+  async getPoliceEvidencePackages(params?: { case_status?: string; classification?: string }): Promise<PoliceEvidencePackage[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.case_status) searchParams.append('case_status', params.case_status);
+    if (params?.classification) searchParams.append('classification', params.classification);
+    const qs = searchParams.toString();
+    return this.request<PoliceEvidencePackage[]>(`/police/evidence-packages${qs ? `?${qs}` : ''}`);
+  }
+
+  async getSinglePoliceEvidencePackage(id: string): Promise<PoliceEvidencePackage> {
+    return this.request<PoliceEvidencePackage>(`/police/evidence-packages/${id}`);
+  }
+
+  async createPoliceEvidencePackage(payload: {
+    incident_report_id?: string;
+    detection_id?: string;
+    title: string;
+    category: string;
+    location_name: string;
+    latitude: number;
+    longitude: number;
+    camera_code: string;
+    video_clip_url: string;
+    snapshot_url: string;
+    reviewer_name?: string;
+    reviewer_notes?: string;
+    classification_level?: string;
+    assigned_police_dept?: string;
+  }): Promise<PoliceEvidencePackage> {
+    return this.request<PoliceEvidencePackage>('/police/evidence-packages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updatePoliceCaseStatus(
+    id: string,
+    case_status: string,
+    investigation_notes?: string,
+    officer_badge_id?: string,
+    officer_name?: string
+  ): Promise<PoliceEvidencePackage> {
+    return this.request<PoliceEvidencePackage>(`/police/evidence-packages/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        case_status,
+        investigation_notes,
+        officer_badge_id,
+        officer_name,
+      }),
+    });
+  }
+
+  async addPoliceCustodyEntry(id: string, action: string, officer_or_agent: string, details: string): Promise<PoliceEvidencePackage> {
+    return this.request<PoliceEvidencePackage>(`/police/evidence-packages/${id}/audit-log`, {
+      method: 'POST',
+      body: JSON.stringify({ action, officer_or_agent, details }),
     });
   }
 }

@@ -2,20 +2,28 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 class OTPRequest(BaseModel):
-    phone: str = Field(..., json_schema_extra={"example": "+15551234567"})
+    phone: str = Field(..., json_schema_extra={"example": "+919876543215"})
 
 class OTPVerify(BaseModel):
-    phone: str = Field(..., json_schema_extra={"example": "+15551234567"})
+    phone: str = Field(..., json_schema_extra={"example": "+919876543215"})
     otp: str = Field(..., json_schema_extra={"example": "123456"})
     role: Optional[str] = "citizen"
     name: Optional[str] = None
-    ward_id: Optional[str] = None
+    ward_id: Optional[str] = "WARD-DL-01"
+
+class GoogleAuthRequest(BaseModel):
+    email: str = Field(..., json_schema_extra={"example": "citizen@gmail.com"})
+    name: Optional[str] = "Aarav Mehta"
+    google_id: Optional[str] = None
+    picture: Optional[str] = None
 
 class OfficialLogin(BaseModel):
-    phone: str = Field(..., json_schema_extra={"example": "+15559876543"})
-    role: str = Field(..., json_schema_extra={"example": "admin"}) # admin, engineer, crew
+    identifier: Optional[str] = Field(None, json_schema_extra={"example": "engineer@civiclens.gov.in"})
+    phone: Optional[str] = Field(None, json_schema_extra={"example": "+919876543211"})
+    role: str = Field(..., json_schema_extra={"example": "engineer"}) # admin, engineer, crew, corporator, police
     name: Optional[str] = None
-    password: Optional[str] = "admin123"
+    password: Optional[str] = "staff123"
+    police_badge_id: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -25,3 +33,6 @@ class TokenResponse(BaseModel):
     role: str
     name: Optional[str] = None
     ward_id: Optional[str] = None
+    email: Optional[str] = None
+    police_badge_id: Optional[str] = None
+    department: Optional[str] = None

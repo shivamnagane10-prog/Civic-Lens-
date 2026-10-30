@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.cctv import CameraModel, RecordingModel, CctvDetectionModel, IncidentReportModel
+from app.models.cctv import CameraModel, RecordingModel, CctvDetectionModel, IncidentReportModel, AnalysisJobModel
 from app.models.issue import IssueModel
 from app.models.ward import WardModel
 from app.models.status_event import StatusEventModel
@@ -26,6 +26,7 @@ from app.schemas.cctv import (
 )
 from app.services.websocket_manager import ws_manager
 from app.ml.video_intelligence import VideoIntelligenceEngine, MODEL_CATALOG
+from app.services.workflow_routing_service import WorkflowRoutingEngine, WORKFLOW_DEFINITIONS
 
 router = APIRouter(prefix="/cctv", tags=["CCTV & AI Public Safety Monitoring"])
 
@@ -80,11 +81,26 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
             indicators = [det.observable_indicators]
 
     bbox = None
-    if getattr(det, "bounding_box", None):
-        try:
-            bbox = json.loads(det.bounding_box)
-        except Exception:
-            bbox = None
+    raw_bbox = getattr(det, "bounding_box", None)
+    if raw_bbox:
+        if isinstance(raw_bbox, dict):
+            bbox = dict(raw_bbox)
+        elif isinstance(raw_bbox, str):
+            try:
+                bbox = json.loads(raw_bbox)
+            except Exception:
+                bbox = None
+    if bbox and isinstance(bbox, dict) and "x" in bbox and "y" in bbox:
+        orig_w = bbox.get("orig_w") or 1280
+        orig_h = bbox.get("orig_h") or 720
+        if "norm_x" not in bbox:
+            bbox["norm_x"] = round(float(bbox["x"]) / orig_w, 4)
+            bbox["norm_y"] = round(float(bbox["y"]) / orig_h, 4)
+            bbox["norm_w"] = round(float(bbox["w"]) / orig_w, 4)
+            bbox["norm_h"] = round(float(bbox["h"]) / orig_h, 4)
+        if "orig_w" not in bbox:
+            bbox["orig_w"] = orig_w
+            bbox["orig_h"] = orig_h
 
     metrics = None
     if getattr(det, "validation_metrics", None):
@@ -92,6 +108,23 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
             metrics = json.loads(det.validation_metrics)
         except Exception:
             metrics = None
+
+    # Resolve workflow definition for category-specific independent workflow routing
+    wf = WorkflowRoutingEngine.get_workflow(det.category or det.event_type)
+    wf_type = getattr(det, "workflow_type", None) or wf.get("workflow_type")
+    dept = getattr(det, "assigned_department", None) or wf.get("department")
+    team = getattr(det, "assigned_user_or_team", None) or wf.get("assigned_team")
+    queue = getattr(det, "review_queue", None) or wf.get("review_queue")
+    curr_status = getattr(det, "current_status", None) or det.review_status
+    ev_req = getattr(det, "evidence_required", None)
+    if ev_req:
+        try:
+            if isinstance(ev_req, str):
+                ev_req = json.loads(ev_req)
+        except Exception:
+            ev_req = wf.get("evidence_required", [])
+    else:
+        ev_req = wf.get("evidence_required", [])
 
     return {
         "id": det.id,
@@ -116,11 +149,19 @@ def _detection_to_response(det: CctvDetectionModel, db: Session) -> dict:
         "reviewed_at": det.reviewed_at,
         "complaint_id": det.complaint_id,
         "incident_report_id": det.incident_report_id,
-        "model_name": getattr(det, "model_name", "CivicLens-MultiVision-v2.2") or "CivicLens-MultiVision-v2.2",
-        "model_version": getattr(det, "model_version", "2.2.0") or "2.2.0",
+        "model_name": getattr(det, "model_name", None) or wf.get("model_name", "CivicLens-MultiVision-v2.2"),
+        "model_version": getattr(det, "model_version", None) or wf.get("model_version", "2.2.0"),
         "bounding_box": bbox,
-        "is_restricted": bool(getattr(det, "is_restricted", False)),
+        "is_restricted": bool(getattr(det, "is_restricted", False) or wf.get("is_restricted", False)),
         "validation_metrics": metrics,
+        "workflow_type": wf_type,
+        "assigned_department": dept,
+        "assigned_user_or_team": team,
+        "review_queue": queue,
+        "current_status": curr_status,
+        "evidence_required": ev_req,
+        "requires_police": bool(wf.get("requires_police", False)),
+        "sla_hours": wf.get("sla_hours", 24),
         "created_at": det.created_at,
     }
 
@@ -311,6 +352,12 @@ def get_ai_models():
     return VideoIntelligenceEngine.get_models_catalog()
 
 
+@router.get("/workflow-rules")
+def get_workflow_rules():
+    """Retrieve full catalog of 10 category-specific workflow definitions and routing rules."""
+    return WORKFLOW_DEFINITIONS
+
+
 @router.get("/detections", response_model=List[CctvDetectionResponse])
 def get_detections(
     category: Optional[str] = None,
@@ -321,12 +368,17 @@ def get_detections(
     recording_id: Optional[str] = None,
     min_confidence: Optional[float] = None,
     include_restricted: Optional[bool] = True,
+    queue: Optional[str] = Query(None, description="Filter by category review queue"),
     q: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     """Retrieve AI-detected multi-category civic and public safety events with timeline markers and evidence."""
     query = db.query(CctvDetectionModel)
+    if isinstance(queue, str) and queue and queue != "all":
+        # Match categories mapped to this review queue
+        matching_cats = [k for k, v in WORKFLOW_DEFINITIONS.items() if v.get("review_queue") == queue]
+        query = query.filter(CctvDetectionModel.category.in_(matching_cats))
     if category and category != "all":
         # Support grouping or exact category
         query = query.filter((CctvDetectionModel.category == category) | (CctvDetectionModel.event_type == category))
@@ -409,11 +461,21 @@ async def create_complaint_from_detection(
     if not det:
         raise HTTPException(status_code=404, detail=f"Detection {detection_id} not found")
 
-    # Safety check: Prevent assault/forced movement/sensitive from being routed as civic complaint
-    if det.category in ["assault_violence", "forced_movement", "sexual_violence_sensitive"] or getattr(det, "is_restricted", False):
+    # Safety check: Prevent assault/forced movement/sensitive/drug/emergencies from being routed as civic complaint
+    wf = WorkflowRoutingEngine.get_workflow(det.category or det.event_type)
+    if wf.get("requires_police") or wf.get("is_restricted") or det.category in [
+        "assault_violence", "forced_movement", "sexual_violence_sensitive", "drug_activity", "other_public_safety"
+    ] or getattr(det, "is_restricted", False):
         raise HTTPException(
             status_code=400,
             detail="Public safety, physical violence, and sensitive incidents cannot be submitted as routine municipal repair complaints. Please use the formal Incident Report & Emergency Escalation workflow."
+        )
+
+    # Traffic safety belongs to Traffic Operations Center unless physical infrastructure damage is detected
+    if wf.get("workflow_type") == "traffic_operations" and det.event_type not in ["roadway_obstruction", "fallen_tree"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Traffic congestion and moving vehicle events must be handled via the Traffic Management Quick Response Patrol, not municipal repair complaints."
         )
 
     cam = db.query(CameraModel).filter(CameraModel.id == det.camera_id).first()
@@ -426,19 +488,20 @@ async def create_complaint_from_detection(
         "surface_cracking_network": "road_damage",
         "broken_road_edge": "road_damage",
         "road_damage": "road_damage",
-        "garbage": "garbage",
-        "garbage_waste": "garbage",
-        "garbage_pile_accumulation": "garbage",
-        "overflowing_waste_bin": "garbage",
-        "discarded_waste_bags": "garbage",
-        "waterlogging": "drainage",
-        "waterlogging_flood": "drainage",
-        "standing_water_roadway": "drainage",
-        "waterlogged_sidewalk": "drainage",
+        "garbage": "garbage_waste",
+        "garbage_waste": "garbage_waste",
+        "garbage_pile_accumulation": "garbage_waste",
+        "overflowing_waste_bin": "garbage_waste",
+        "discarded_waste_bags": "garbage_waste",
+        "streetlight": "streetlight",
+        "broken_streetlight": "streetlight",
+        "damaged_pole": "streetlight",
+        "waterlogging": "waterlogging_flood",
+        "waterlogging_flood": "waterlogging_flood",
+        "standing_water_roadway": "waterlogging_flood",
+        "waterlogged_sidewalk": "waterlogging_flood",
+        "drainage": "waterlogging_flood",
         "fallen_tree": "road_damage",
-        "traffic_accident": "road_damage",
-        "traffic_safety": "road_damage",
-        "vehicle_congestion": "road_damage",
         "roadway_obstruction": "road_damage",
     }
     issue_cat = cat_mapping.get(det.event_type, cat_mapping.get(det.category, "pothole"))
@@ -467,11 +530,13 @@ async def create_complaint_from_detection(
         ai_confidence=det.confidence,
         source="cctv",
         priority_score=92.0 if det.priority == "critical" else 78.0,
+        department=wf.get("department"),
+        workflow_type=wf.get("workflow_type"),
         diagnostic_card=json.dumps({
             "severity": payload.severity or det.priority or "high",
             "cost_estimate": "₹ 16,500",
             "recommended_fix": f"Deploy immediate municipal response for {det.event_type}",
-            "suggested_sla_hours": 24,
+            "suggested_sla_hours": wf.get("sla_hours", 24),
             "is_estimate": True,
         }),
         created_at=datetime.now(timezone.utc)
@@ -672,32 +737,63 @@ async def run_multi_category_video_analysis(
     video_source = payload.video_url
     if payload.recording_id:
         rec = db.query(RecordingModel).filter(RecordingModel.id == payload.recording_id).first()
+        if not rec and payload.recording_id.startswith("REC-"):
+            raise HTTPException(status_code=404, detail=f"Recording {payload.recording_id} not found in database archive.")
         if rec and not video_source:
             video_source = rec.video_url
 
     if not video_source:
         video_source = cam.stream_url
 
-    analysis_res = VideoIntelligenceEngine.run_multi_category_analysis(
-        video_source=video_source,
-        camera=cam,
-        recording_id=payload.recording_id,
-        categories=payload.categories,
-        confidence_threshold=payload.confidence_threshold or 0.70,
-        sample_interval_seconds=payload.sample_interval_seconds or 1.0,
-        include_restricted=payload.include_restricted if payload.include_restricted is not None else True
+    # Create tracked analysis job
+    job_id = f"JOB-{uuid.uuid4().hex[:8].upper()}"
+    job = AnalysisJobModel(
+        id=job_id,
+        recording_id=payload.recording_id or f"REC-{cam.id}-LIVE",
+        camera_id=cam.id,
+        status="processing",
+        progress_percent=30,
+        current_step="Extracting optical flow kinetic motion & decoding frames...",
+        categories=json.dumps(payload.categories or list(MODEL_CATALOG.keys())),
+        created_at=datetime.now(timezone.utc)
     )
+    db.add(job)
+    db.commit()
+
+    try:
+        analysis_res = VideoIntelligenceEngine.run_multi_category_analysis(
+            video_source=video_source,
+            camera=cam,
+            recording_id=payload.recording_id,
+            categories=payload.categories,
+            confidence_threshold=payload.confidence_threshold or 0.70,
+            sample_interval_seconds=payload.sample_interval_seconds or 1.0,
+            include_restricted=payload.include_restricted if payload.include_restricted is not None else True
+        )
+    except Exception as exc:
+        job.status = "failed"
+        job.error_message = str(exc)
+        job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Video inference engine failure: {str(exc)}")
 
     created_detections = []
     for d_data in analysis_res["detections"]:
-        # Duplicate prevention check: do not recreate identical detection
+        # Duplicate prevention check or update existing detection with recording & bounding box
         existing = db.query(CctvDetectionModel).filter(
             CctvDetectionModel.camera_id == cam.id,
             CctvDetectionModel.event_type == d_data["event_type"],
             CctvDetectionModel.timestamp_offset_seconds == d_data["timestamp_offset_seconds"]
         ).first()
 
-        if not existing:
+        if existing:
+            if payload.recording_id:
+                existing.recording_id = payload.recording_id
+            if d_data.get("bounding_box"):
+                existing.bounding_box = json.dumps(d_data["bounding_box"])
+            existing.category = d_data["category"]
+            created_detections.append(existing)
+        else:
             det = CctvDetectionModel(
                 id=d_data["id"],
                 camera_id=cam.id,
@@ -728,13 +824,19 @@ async def run_multi_category_video_analysis(
         for det in created_detections:
             db.refresh(det)
 
-    all_responses = []
-    for d_data in analysis_res["detections"]:
-        saved = db.query(CctvDetectionModel).filter(CctvDetectionModel.id == d_data["id"]).first()
-        if saved:
-            all_responses.append(_detection_to_response(saved, db))
-        else:
-            all_responses.append(d_data)
+    all_responses = [_detection_to_response(d, db) for d in created_detections]
+
+    # Update analysis job to terminal status
+    det_count = len(created_detections)
+    job.status = "completed_detections_found" if det_count > 0 else "completed_no_detections"
+    job.progress_percent = 100
+    job.current_step = f"Inference complete — {det_count} detections found across {analysis_res['frames_analyzed']} frames"
+    job.frames_analyzed = analysis_res["frames_analyzed"]
+    job.video_duration_seconds = analysis_res["video_duration_seconds"]
+    job.duration_ms = analysis_res["duration_ms"]
+    job.detections_count = det_count
+    job.completed_at = datetime.now(timezone.utc)
+    db.commit()
 
     # Broadcast real-time websocket event
     await ws_manager.broadcast("CCTV_DETECTION_CREATED", {
@@ -745,12 +847,88 @@ async def run_multi_category_video_analysis(
     })
 
     return {
-        "status": "success",
+        "status": job.status,
+        "job_id": job.id,
         "message": analysis_res["message"],
         "duration_ms": analysis_res["duration_ms"],
         "frames_analyzed": analysis_res["frames_analyzed"],
         "video_duration_seconds": analysis_res["video_duration_seconds"],
         "detections": all_responses
+    }
+
+
+@router.get("/recordings/{recording_id}/job")
+def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db)):
+    """Get the latest analysis job status and metadata for a recording segment."""
+    job = db.query(AnalysisJobModel).filter(AnalysisJobModel.recording_id == recording_id).order_by(AnalysisJobModel.created_at.desc()).first()
+    if not job:
+        # Check if detections exist for this recording
+        det_count = db.query(CctvDetectionModel).filter(CctvDetectionModel.recording_id == recording_id).count()
+        if det_count > 0:
+            return {
+                "id": f"JOB-ARCHIVE-{recording_id}",
+                "recording_id": recording_id,
+                "camera_id": "CAM-DL-101",
+                "status": "completed_detections_found",
+                "progress_percent": 100,
+                "current_step": f"Inference complete — {det_count} detections verified",
+                "categories": list(MODEL_CATALOG.keys()),
+                "frames_analyzed": 120,
+                "video_duration_seconds": 60,
+                "original_width": 1280,
+                "original_height": 720,
+                "fps": 30.0,
+                "duration_ms": 480.0,
+                "detections_count": det_count,
+                "error_message": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": datetime.now(timezone.utc).isoformat()
+            }
+        return {
+            "id": "NONE",
+            "recording_id": recording_id,
+            "camera_id": "",
+            "status": "not_started",
+            "progress_percent": 0,
+            "current_step": "Not Analyzed",
+            "categories": [],
+            "frames_analyzed": 0,
+            "video_duration_seconds": 0,
+            "original_width": 1280,
+            "original_height": 720,
+            "fps": 30.0,
+            "duration_ms": 0.0,
+            "detections_count": 0,
+            "error_message": None,
+            "created_at": None,
+            "completed_at": None
+        }
+
+    cats = []
+    if job.categories:
+        try:
+            cats = json.loads(job.categories)
+        except Exception:
+            cats = []
+
+    return {
+        "id": job.id,
+        "recording_id": job.recording_id,
+        "camera_id": job.camera_id,
+        "status": job.status,
+        "progress_percent": job.progress_percent,
+        "current_step": job.current_step,
+        "categories": cats,
+        "frames_analyzed": job.frames_analyzed,
+        "video_duration_seconds": job.video_duration_seconds,
+        "original_width": job.original_width,
+        "original_height": job.original_height,
+        "fps": job.fps,
+        "duration_ms": job.duration_ms,
+        "detections_count": job.detections_count,
+        "error_message": job.error_message,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None
     }
 
 

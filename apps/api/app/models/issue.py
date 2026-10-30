@@ -28,5 +28,7 @@ class IssueModel(Base):
     source = Column(String(20), default="citizen")  # citizen, cctv, satellite, iot
     priority_score = Column(Float, default=50.0)
     diagnostic_card = Column(Text, nullable=True)  # JSON string
+    department = Column(String(100), nullable=True)
+    workflow_type = Column(String(50), default="road_maintenance")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     resolved_at = Column(DateTime, nullable=True)

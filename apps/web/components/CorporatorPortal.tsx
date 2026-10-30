@@ -59,10 +59,16 @@ export const CorporatorPortal: React.FC<CorporatorPortalProps> = ({
   const [budgetOverrides, setBudgetOverrides] = useState<Record<string, string>>({});
   const [priorityOverrides, setPriorityOverrides] = useState<Record<string, string>>({});
 
+  // Filter out non-municipal / sensitive public-safety issues (strictly isolated by workflow engine)
+  const municipalIssues = issues.filter(
+    (i) =>
+      !['assault_violence', 'sexual_violence_sensitive', 'forced_movement', 'drug_activity', 'other_public_safety', 'traffic_safety'].includes(i.category)
+  );
+
   const wardIssues =
     selectedWardId === 'all'
-      ? issues
-      : issues.filter((i) => i.ward_id === selectedWardId);
+      ? municipalIssues
+      : municipalIssues.filter((i) => i.ward_id === selectedWardId);
 
   // Issues awaiting municipal sanction (submitted, reported, or acknowledged)
   const pendingSanctions = wardIssues.filter(
@@ -355,6 +361,16 @@ export const CorporatorPortal: React.FC<CorporatorPortalProps> = ({
                           </span>
                         </div>
                         <h4 className="text-sm font-bold text-white mt-1 line-clamp-1">{issue.title}</h4>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[10px] font-mono">
+                          <span className="px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-800/60 text-sky-300 font-bold">
+                            Workflow: {issue.workflow_type || (issue.category.includes('road') || issue.category.includes('pothole') ? 'road_maintenance' : issue.category.includes('garbage') ? 'waste_management' : issue.category.includes('light') ? 'electrical_maintenance' : 'drainage_management')}
+                          </span>
+                          {issue.department && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700/60 text-slate-300 truncate max-w-[200px]" title={issue.department}>
+                              {issue.department}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Status Badge */}

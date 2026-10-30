@@ -1,4 +1,4 @@
-export type UserRole = 'citizen' | 'admin' | 'engineer' | 'crew';
+export type UserRole = 'citizen' | 'admin' | 'engineer' | 'crew' | 'corporator' | 'police';
 
 export interface User {
   id: string;
@@ -6,6 +6,10 @@ export interface User {
   role: UserRole;
   ward_id?: string | null;
   name?: string | null;
+  email?: string | null;
+  google_id?: string | null;
+  police_badge_id?: string | null;
+  department?: string | null;
   created_at: string;
 }
 
@@ -78,6 +82,8 @@ export interface Issue {
   source: IssueSource;
   priority_score: number;
   diagnostic_card?: DiagnosticCard | null;
+  department?: string | null;
+  workflow_type?: string | null;
   created_at: string;
   resolved_at?: string | null;
   events?: StatusEvent[];
@@ -311,6 +317,36 @@ export type DetectionReviewStatus =
   | 'escalated'
   | 'closed';
 
+export type ReviewQueueType =
+  | 'road_maintenance'
+  | 'waste_management'
+  | 'electrical_maintenance'
+  | 'drainage_management'
+  | 'traffic_management'
+  | 'public_safety_review'
+  | 'sensitive_safeguarding'
+  | 'police_submission_tracking';
+
+export interface WorkflowRule {
+  category: string;
+  name: string;
+  workflow_type: string;
+  department: string;
+  assigned_team: string;
+  review_queue: ReviewQueueType;
+  allowed_statuses: string[];
+  terminal_status: string;
+  terminal_label: string;
+  evidence_required: string[];
+  model_name: string;
+  model_version: string;
+  sla_hours: number;
+  is_restricted: boolean;
+  requires_police: boolean;
+  permitted_roles: string[];
+  notification_template?: string;
+}
+
 export interface CctvDetection {
   id: string;
   camera_id: string;
@@ -336,10 +372,60 @@ export interface CctvDetection {
   incident_report_id?: string | null;
   model_name?: string;
   model_version?: string;
-  bounding_box?: { x: number; y: number; w: number; h: number } | null;
+  bounding_box?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    orig_w?: number;
+    orig_h?: number;
+    norm_x?: number;
+    norm_y?: number;
+    norm_w?: number;
+    norm_h?: number;
+  } | null;
   is_restricted?: boolean;
   validation_metrics?: Record<string, any> | null;
+  workflow_type?: string | null;
+  assigned_department?: string | null;
+  assigned_user_or_team?: string | null;
+  review_queue?: ReviewQueueType | string | null;
+  current_status?: string | null;
+  evidence_required?: string[] | null;
+  requires_police?: boolean | null;
+  sla_hours?: number | null;
   created_at: string;
+}
+
+export type AnalysisJobStatus =
+  | 'not_started'
+  | 'queued'
+  | 'processing'
+  | 'completed_detections_found'
+  | 'completed_no_detections'
+  | 'failed'
+  | 'unsupported_category'
+  | 'insufficient_evidence';
+
+export interface AnalysisJob {
+  id: string;
+  recording_id: string;
+  camera_id: string;
+  status: AnalysisJobStatus;
+  progress_percent: number;
+  current_step?: string | null;
+  categories: string[];
+  frames_analyzed: number;
+  video_duration_seconds: number;
+  original_width: number;
+  original_height: number;
+  fps: number;
+  duration_ms: number;
+  detections_count: number;
+  error_message?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  detections?: CctvDetection[];
 }
 
 export interface AiModelInfo {
@@ -488,6 +574,68 @@ export interface CameraPlacementRecommendation {
   status: 'draft' | 'under_review' | 'approved' | 'scheduled_for_install';
   created_at: string;
 }
+
+// ==========================================
+// Inspection & Police Safety Escalation Types
+// ==========================================
+
+export type InspectionDecisionType = 'approve' | 'reject' | 'request_rework' | 'needs_further_inspection';
+
+export interface InspectionSubmission {
+  issue_id: string;
+  decision: InspectionDecisionType;
+  engineer_remarks: string;
+  checklist?: Record<string, boolean>;
+  verification_photo_url?: string;
+}
+
+export interface ChainOfCustodyEntry {
+  timestamp: string;
+  action: string;
+  officer_or_agent: string;
+  details: string;
+}
+
+export type PoliceCaseStatus =
+  | 'draft'
+  | 'submitted_to_police'
+  | 'acknowledged'
+  | 'under_investigation'
+  | 'charges_filed'
+  | 'closed';
+
+export interface PoliceEvidencePackage {
+  id: string;
+  incident_report_id?: string | null;
+  detection_id?: string | null;
+  case_number: string;
+  title: string;
+  category: DetectionCategory | string;
+  incident_timestamp: string;
+  location_name: string;
+  latitude: number;
+  longitude: number;
+  camera_code: string;
+  video_clip_url: string;
+  video_hash_sha256: string;
+  snapshot_url: string;
+  snapshot_hash_sha256: string;
+  chain_of_custody_log: ChainOfCustodyEntry[];
+  officer_badge_id?: string | null;
+  assigned_police_dept?: string;
+  case_status: PoliceCaseStatus;
+  classification_level: 'Restricted' | 'Confidential' | 'Urgent Judicial Evidence';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoogleAuthPayload {
+  credential?: string;
+  email: string;
+  name?: string;
+  picture?: string;
+}
+
 
 
 

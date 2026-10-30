@@ -52,3 +52,17 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return current_user
+
+def require_roles(*allowed_roles: str):
+    def role_checker(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+        # admin or engineer with cross-portal access can access municipal operations
+        if "admin" in allowed_roles and current_user.role == "admin":
+            return current_user
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: User role '{current_user.role}' is not authorized. Required: {', '.join(allowed_roles)}"
+            )
+        return current_user
+    return role_checker
+

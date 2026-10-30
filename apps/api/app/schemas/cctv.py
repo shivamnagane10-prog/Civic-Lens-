@@ -90,6 +90,14 @@ class CctvDetectionResponse(BaseModel):
     bounding_box: Optional[Dict[str, Any]] = None
     is_restricted: Optional[bool] = False
     validation_metrics: Optional[Dict[str, Any]] = None
+    workflow_type: Optional[str] = None
+    assigned_department: Optional[str] = None
+    assigned_user_or_team: Optional[str] = None
+    review_queue: Optional[str] = None
+    current_status: Optional[str] = None
+    evidence_required: Optional[List[str]] = None
+    requires_police: Optional[bool] = False
+    sla_hours: Optional[int] = 24
     created_at: datetime
 
 class ReviewDetectionRequest(BaseModel):
@@ -171,3 +179,25 @@ class AnalyzeVideoRequest(BaseModel):
     recording_id: Optional[str] = None
     video_url: Optional[str] = None
     analysis_focus: Optional[Literal["all", "civic_infrastructure", "public_safety"]] = "all"
+
+class AnalysisJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    recording_id: str
+    camera_id: str
+    status: str
+    progress_percent: int
+    current_step: Optional[str] = None
+    categories: Optional[List[str]] = None
+    frames_analyzed: int
+    video_duration_seconds: int
+    original_width: int
+    original_height: int
+    fps: float
+    duration_ms: float
+    detections_count: int
+    error_message: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    detections: Optional[List[CctvDetectionResponse]] = None

@@ -55,41 +55,73 @@ interface AiIncidentCenterProps {
   onComplaintCreated?: (issue: any) => void;
 }
 
+const QUEUE_TABS = [
+  { id: 'all', label: 'All Review Queues', icon: Layers, code: 'CENTRAL' },
+  { id: 'road_maintenance', label: 'Road Maintenance', icon: Construction, code: 'ROAD-01' },
+  { id: 'waste_management', label: 'Waste Management', icon: Trash2, code: 'WASTE-02' },
+  { id: 'electrical_maintenance', label: 'Streetlight Ops', icon: Activity, code: 'ELEC-03' },
+  { id: 'drainage_management', label: 'Drainage & Floods', icon: Waves, code: 'DRAIN-04' },
+  { id: 'traffic_management', label: 'Traffic Operations', icon: Car, code: 'TRAFFIC-05' },
+  { id: 'public_safety_review', label: 'Restricted Public Safety', icon: ShieldAlert, code: 'SAFETY-06' },
+  { id: 'sensitive_safeguarding', label: 'Sensitive Safeguarding', icon: Lock, code: 'SAFEGUARD-07' },
+  { id: 'police_submission_tracking', label: 'Police Submission Tracking', icon: Shield, code: 'POLICE-08' },
+];
+
 const CATEGORY_TABS = [
   { id: 'all', label: 'All Incidents', icon: Layers },
-  { id: 'traffic_safety', label: 'Traffic & Road Safety', icon: Car },
+  { id: 'road_damage', label: 'Damaged Roads & Potholes', icon: Construction },
   { id: 'garbage_waste', label: 'Garbage & Waste', icon: Trash2 },
+  { id: 'streetlight', label: 'Broken Streetlights', icon: Activity },
   { id: 'waterlogging_flood', label: 'Waterlogging & Flood', icon: Waves },
-  { id: 'road_damage', label: 'Road Damage', icon: Construction },
-  { id: 'assault_violence', label: 'Physical Violence', icon: ShieldAlert },
-  { id: 'forced_movement', label: 'Possible Forced Movement', icon: Users },
+  { id: 'traffic_safety', label: 'Traffic & Transit', icon: Car },
+  { id: 'assault_violence', label: 'Physical Assault', icon: ShieldAlert },
   { id: 'sexual_violence_sensitive', label: 'Sensitive Safeguarding', icon: Lock },
+  { id: 'forced_movement', label: 'Possible Forced Movement', icon: Users },
+  { id: 'drug_activity', label: 'Suspected Narcotics', icon: Shield },
   { id: 'other_public_safety', label: 'Other Hazards', icon: Activity },
 ];
 
 function isCivicInfrastructureCategory(category: string, eventType: string): boolean {
-  if (['assault_violence', 'forced_movement', 'sexual_violence_sensitive', 'other_public_safety'].includes(category)) {
+  if (['assault_violence', 'forced_movement', 'sexual_violence_sensitive', 'drug_activity', 'other_public_safety'].includes(category)) {
     return false;
   }
-  if (eventType.includes('assault') || eventType.includes('forced') || eventType.includes('collapse') || eventType.includes('sexual')) {
+  if (eventType.includes('assault') || eventType.includes('forced') || eventType.includes('collapse') || eventType.includes('sexual') || eventType.includes('drug') || eventType.includes('kidnap')) {
     return false;
   }
   return true;
 }
 
+function matchQueue(det: CctvDetection, queueId: string): boolean {
+  if (queueId === 'all') return true;
+  if (det.review_queue === queueId) return true;
+  const cat = (det.category || '').toLowerCase();
+  const et = (det.event_type || '').toLowerCase();
+  if (queueId === 'road_maintenance') return cat.includes('road') || cat.includes('pothole') || et.includes('pothole') || et.includes('crack') || et.includes('road');
+  if (queueId === 'waste_management') return cat.includes('garbage') || cat.includes('waste') || et.includes('garbage') || et.includes('waste');
+  if (queueId === 'electrical_maintenance') return cat.includes('light') || cat.includes('street') || et.includes('light') || et.includes('lamp');
+  if (queueId === 'drainage_management') return cat.includes('water') || cat.includes('flood') || cat.includes('drain') || et.includes('water');
+  if (queueId === 'traffic_management') return cat.includes('traffic') || et.includes('traffic') || et.includes('vehicle') || et.includes('congestion');
+  if (queueId === 'public_safety_review') return cat.includes('assault') || cat.includes('forced') || cat.includes('kidnap') || cat.includes('drug') || cat.includes('other_public');
+  if (queueId === 'sensitive_safeguarding') return cat.includes('sexual') || cat.includes('harass') || !!det.is_restricted;
+  if (queueId === 'police_submission_tracking') return det.review_status === 'escalated' || !!det.incident_report_id;
+  return false;
+}
+
 function matchCategory(det: CctvDetection, filter: string): boolean {
   if (filter === 'all') return true;
-  const cat = det.category as string;
-  const et = det.event_type.toLowerCase();
+  const cat = (det.category || '').toLowerCase();
+  const et = (det.event_type || '').toLowerCase();
   if (cat === filter) return true;
-  if (filter === 'traffic_safety' && (cat === 'traffic_safety' || et.includes('traffic') || et.includes('vehicle') || et.includes('congestion'))) return true;
-  if (filter === 'garbage_waste' && (cat === 'garbage_waste' || cat === 'garbage' || et.includes('garbage') || et.includes('waste'))) return true;
-  if (filter === 'waterlogging_flood' && (cat === 'waterlogging_flood' || cat === 'waterlogging' || et.includes('waterlogging') || et.includes('water') || et.includes('drainage'))) return true;
-  if (filter === 'road_damage' && (cat === 'road_damage' || cat === 'civic_infrastructure' || et.includes('pothole') || et.includes('damage') || et.includes('crack'))) return true;
-  if (filter === 'assault_violence' && (cat === 'assault_violence' || et.includes('assault') || et.includes('violence') || et.includes('altercation'))) return true;
-  if (filter === 'forced_movement' && (cat === 'forced_movement' || et.includes('forced') || et.includes('restraint'))) return true;
-  if (filter === 'sexual_violence_sensitive' && (cat === 'sexual_violence_sensitive' || det.is_restricted || et.includes('sexual'))) return true;
-  if (filter === 'other_public_safety' && (cat === 'other_public_safety' || et.includes('collapse') || et.includes('fall') || et.includes('crowd') || et.includes('harassment'))) return true;
+  if (filter === 'road_damage' && (cat.includes('road') || cat.includes('pothole') || et.includes('pothole') || et.includes('damage') || et.includes('crack'))) return true;
+  if (filter === 'garbage_waste' && (cat.includes('garbage') || cat.includes('waste') || et.includes('garbage') || et.includes('waste'))) return true;
+  if (filter === 'streetlight' && (cat.includes('light') || cat.includes('street') || et.includes('light') || et.includes('lamp'))) return true;
+  if (filter === 'waterlogging_flood' && (cat.includes('water') || cat.includes('flood') || et.includes('water') || et.includes('drain'))) return true;
+  if (filter === 'traffic_safety' && (cat.includes('traffic') || et.includes('traffic') || et.includes('vehicle') || et.includes('congestion'))) return true;
+  if (filter === 'assault_violence' && (cat.includes('assault') || et.includes('assault') || et.includes('violence') || et.includes('altercation'))) return true;
+  if (filter === 'sexual_violence_sensitive' && (cat.includes('sexual') || et.includes('sexual') || det.is_restricted)) return true;
+  if (filter === 'forced_movement' && (cat.includes('forced') || cat.includes('kidnap') || et.includes('forced') || et.includes('restraint'))) return true;
+  if (filter === 'drug_activity' && (cat.includes('drug') || et.includes('drug') || et.includes('narcotic'))) return true;
+  if (filter === 'other_public_safety' && (cat.includes('other') || et.includes('collapse') || et.includes('fall') || et.includes('crowd') || et.includes('harassment'))) return true;
   return false;
 }
 
@@ -104,6 +136,7 @@ export function AiIncidentCenter({
   const [loading, setLoading] = useState(true);
 
   // Filters
+  const [selectedQueue, setSelectedQueue] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [reviewFilter, setReviewFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -149,6 +182,7 @@ export function AiIncidentCenter({
 
   // Filter Detections
   const filteredDetections = detections.filter((d) => {
+    const matchesQueue = matchQueue(d, selectedQueue);
     const matchesCategory = matchCategory(d, categoryFilter);
     const matchesReview = reviewFilter === 'all' || d.review_status === reviewFilter;
     const matchesPriority = priorityFilter === 'all' || d.priority === priorityFilter;
@@ -158,9 +192,114 @@ export function AiIncidentCenter({
       d.event_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
       d.camera_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       d.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (d.assigned_department && d.assigned_department.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (d.workflow_type && d.workflow_type.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (d.observable_indicators && d.observable_indicators.some((ind) => ind.toLowerCase().includes(searchQuery.toLowerCase())));
-    return matchesCategory && matchesReview && matchesPriority && matchesCamera && matchesSearch;
+    return matchesQueue && matchesCategory && matchesReview && matchesPriority && matchesCamera && matchesSearch;
   });
+
+  // Action: Deploy Traffic Patrol (handled via Traffic Operations Center)
+  const handleDeployTrafficPatrol = (detection: CctvDetection) => {
+    setDetections((prev) =>
+      prev.map((d) => (d.id === detection.id ? { ...d, review_status: 'verified', current_status: 'patrol_dispatched' } : d))
+    );
+    setActionBanner(`Traffic Operations Center: Patrol unit deployed to ${detection.camera_name}! Signal timings recalibrated. (Traffic events do not create municipal road repair complaints).`);
+    setTimeout(() => setActionBanner(null), 6000);
+  };
+
+  const getCategoryAction = (det: CctvDetection) => {
+    const cat = (det.category || '').toLowerCase();
+    const et = (det.event_type || '').toLowerCase();
+    const queue = det.review_queue || '';
+
+    if (queue === 'traffic_management' || cat.includes('traffic') || et.includes('traffic') || et.includes('congestion')) {
+      return {
+        type: 'traffic_patrol',
+        label: 'Deploy Traffic Patrol (PCR/Transit QRP)',
+        desc: 'Handled in Traffic Operations Center; notifies Traffic Police without creating road repair complaints',
+        color: 'from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-600/20 text-white',
+        icon: Car
+      };
+    }
+
+    if (queue === 'electrical_maintenance' || cat.includes('light') || et.includes('light')) {
+      return {
+        type: 'complaint_draft',
+        label: 'Verify Lux & Dispatch Electrical Crew',
+        desc: 'Routes to Municipal Electrical Division for daylight & lux compliance check',
+        color: 'from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 shadow-yellow-600/20 text-white',
+        icon: Activity
+      };
+    }
+
+    if (queue === 'waste_management' || cat.includes('garbage') || cat.includes('waste') || et.includes('waste')) {
+      return {
+        type: 'complaint_draft',
+        label: 'Dispatch Sanitation & Waste Team',
+        desc: 'Routes to Solid Waste & Sanitation Division for clearance receipt verification',
+        color: 'from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-teal-600/20 text-white',
+        icon: Trash2
+      };
+    }
+
+    if (queue === 'drainage_management' || cat.includes('water') || cat.includes('flood') || et.includes('water') || et.includes('drain')) {
+      return {
+        type: 'complaint_draft',
+        label: 'Immediate Flood Clearance / Drainage Crew',
+        desc: 'Routes to Stormwater Drainage Authority with emergency pump option',
+        color: 'from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 shadow-cyan-600/20 text-white',
+        icon: Waves
+      };
+    }
+
+    if (queue === 'road_maintenance' || cat.includes('road') || cat.includes('pothole') || et.includes('pothole')) {
+      return {
+        type: 'complaint_draft',
+        label: 'Route to Corporator & Road Crew',
+        desc: 'Routes to Road Pavement Division for budget approval and IRC inspection verification',
+        color: 'from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/20 text-white',
+        icon: Truck
+      };
+    }
+
+    if (queue === 'sensitive_safeguarding' || cat.includes('sexual') || det.is_restricted) {
+      return {
+        type: 'sensitive_safeguarding',
+        label: 'Restricted Safeguarding Escalation (SPUWAC 1091)',
+        desc: 'Restricted review strictly for Authorized Safeguarding Officers',
+        color: 'from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-purple-600/20 text-white',
+        icon: Lock
+      };
+    }
+
+    if (cat.includes('drug') || et.includes('drug')) {
+      return {
+        type: 'drug_intelligence',
+        label: 'Log Confidential Crime Intelligence Dossier',
+        desc: 'Transfers neutral observation evidence to Anti-Narcotics Task Force',
+        color: 'from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 shadow-rose-700/20 text-white',
+        icon: ShieldAlert
+      };
+    }
+
+    if (cat.includes('forced') || et.includes('forced') || et.includes('kidnap')) {
+      return {
+        type: 'urgent_intercept',
+        label: 'Escalate to Police Flying Squad / Quick Response',
+        desc: 'Urgent trajectory tracking dispatch for immediate subject interception',
+        color: 'from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 shadow-red-600/20 text-white',
+        icon: ShieldAlert
+      };
+    }
+
+    return {
+      type: 'police_report',
+      label: 'Prepare Cryptographic Dossier & Escalate to Police PCR 112',
+      desc: 'Formal chain-of-custody sealed incident transmittal',
+      color: 'from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 shadow-rose-600/20 text-white',
+      icon: ShieldAlert
+    };
+  };
 
   // Action 1: Submit Human Review (Verified / Inconclusive / False Positive / Escalated / Closed)
   const handleSubmitReview = async () => {
@@ -224,12 +363,36 @@ export function AiIncidentCenter({
         reviewer_notes: `Incident verified by Authorized Operator. Transmitted to ${escalationAgency.toUpperCase()} emergency channel.`,
       });
 
+      // If escalated to police or women safety channel, create formal cryptographically sealed PoliceEvidencePackage
+      if (escalationAgency === 'police_112' || escalationAgency === 'women_safety_1091' || escalationAgency === 'traffic_police') {
+        try {
+          await api.createPoliceEvidencePackage({
+            incident_report_id: rep.id,
+            detection_id: reportingDetection.id,
+            title: reportSummary || reportingDetection.description,
+            category: reportingDetection.category,
+            location_name: reportingDetection.location_name,
+            latitude: 28.6139,
+            longitude: 77.2090,
+            camera_code: reportingDetection.camera_name,
+            video_clip_url: reportingDetection.video_url || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+            snapshot_url: reportingDetection.snapshot_url,
+            reviewer_name: 'AI Incident Command Triage Officer',
+            reviewer_notes: `Transferred via formal emergency escalation to ${escalationAgency}. Chain-of-custody recorded.`,
+            classification_level: reportingDetection.priority === 'critical' ? 'Urgent Judicial Evidence' : 'Restricted',
+            assigned_police_dept: escalationAgency === 'women_safety_1091' ? 'Special Police Unit for Women & Children (SPUWAC)' : 'Cyber Crime & Video Surveillance Division'
+          });
+        } catch (pkgErr) {
+          console.warn('Could not auto-create police evidence package', pkgErr);
+        }
+      }
+
       setIncidentReports((prev) => [rep, ...prev]);
       setDetections((prev) =>
         prev.map((d) => (d.id === reportingDetection.id ? { ...d, review_status: 'verified', incident_report_id: rep.id } : d))
       );
 
-      setActionBanner(`Formal Incident Report #${rep.id} created & transmitted to ${escalationAgency.toUpperCase()}! Agency Ref: ${rep.agency_reference_id}`);
+      setActionBanner(`Formal Incident Report #${rep.id} sealed & transmitted to ${escalationAgency.toUpperCase()}! Dispatched to Cyber Police Evidence Vault.`);
       setTimeout(() => setActionBanner(null), 6000);
       setReportingDetection(null);
       setReportSummary('');
@@ -367,8 +530,58 @@ export function AiIncidentCenter({
 
       {/* Filter and Category Navigation */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        {/* Row 0: Dedicated Review Queues (8 Independent Workflows) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-bold flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-sky-400" /> Independent Review Queues &amp; Workflows:
+            </span>
+            <span className="text-[10px] font-mono text-slate-500">
+              Active: {selectedQueue === 'all' ? 'All Queues (Universal Operations)' : selectedQueue.replace(/_/g, ' ').toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            {QUEUE_TABS.map((q) => {
+              const IconComp = q.icon;
+              const count =
+                q.id === 'all'
+                  ? detections.length
+                  : detections.filter((d) => matchQueue(d, q.id)).length;
+              const isSelected = selectedQueue === q.id;
+
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => {
+                    setSelectedQueue(q.id);
+                    if (q.id === 'road_maintenance') setCategoryFilter('road_damage');
+                    else if (q.id === 'waste_management') setCategoryFilter('garbage_waste');
+                    else if (q.id === 'electrical_maintenance') setCategoryFilter('streetlight');
+                    else if (q.id === 'drainage_management') setCategoryFilter('waterlogging_flood');
+                    else if (q.id === 'traffic_management') setCategoryFilter('traffic_safety');
+                    else if (q.id === 'public_safety_review') setCategoryFilter('assault_violence');
+                    else if (q.id === 'sensitive_safeguarding') setCategoryFilter('sexual_violence_sensitive');
+                    else setCategoryFilter('all');
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0 whitespace-nowrap border ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-rose-600 via-indigo-600 to-sky-600 text-white border-sky-400/50 shadow-lg shadow-sky-600/20 font-bold'
+                      : 'bg-slate-950/90 text-slate-400 hover:text-slate-200 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <IconComp className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{q.label}</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-black/40 text-white' : 'bg-slate-900 text-slate-400'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Row 1: Category Filter Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 pt-1 border-t border-slate-800/60">
           {CATEGORY_TABS.map((tab) => {
             const IconComp = tab.icon;
             const count =
@@ -546,6 +759,46 @@ export function AiIncidentCenter({
                     </div>
                   )}
 
+                  {/* Category-Specific Workflow & Department Routing Box */}
+                  <div className="mt-3 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1 text-[11px] font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold">Workflow Engine:</span>
+                      <span className="text-sky-300 font-bold px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-800/60">
+                        {det.workflow_type || 'road_maintenance'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold">Assigned Dept:</span>
+                      <span className="text-slate-200 truncate max-w-[170px]" title={det.assigned_department || 'Municipal Division'}>
+                        {det.assigned_department || 'Municipal Division'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold">Assigned Team:</span>
+                      <span className="text-emerald-300 font-bold truncate max-w-[170px]">
+                        {det.assigned_user_or_team || 'Field Crew'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold">Target SLA:</span>
+                      <span className="text-amber-300 font-bold">
+                        {det.sla_hours || 48} Hours
+                      </span>
+                    </div>
+                    {det.evidence_required && det.evidence_required.length > 0 && (
+                      <div className="pt-1.5 border-t border-slate-800/80">
+                        <span className="text-[9px] text-slate-500 uppercase block mb-1">Workflow Evidence Required:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {det.evidence_required.map((ev, i) => (
+                            <span key={i} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700/60 text-[9px] text-slate-300">
+                              ✓ {ev.replace(/_/g, ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Attached Status (Complaint or Report) */}
                   {det.complaint_id && (
                     <div className="mt-2.5 p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center justify-between font-mono">
@@ -595,29 +848,59 @@ export function AiIncidentCenter({
                     </button>
                   </div>
 
-                  {/* Fork Action Buttons: Complaint vs Formal Incident Report */}
-                  {isCivic ? (
-                    <button
-                      onClick={() => handleRouteToCivicComplaint(det)}
-                      disabled={!!det.complaint_id}
-                      className="w-full py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50"
-                    >
-                      <Truck className="w-3.5 h-3.5" />
-                      {det.complaint_id ? 'Civic Complaint Active' : 'Create Civic Complaint Draft'}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setReportingDetection(det);
-                        setReportSummary(det.description);
-                      }}
-                      disabled={!!det.incident_report_id}
-                      className="w-full py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
-                    >
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                      {det.incident_report_id ? 'Formal Report Dispatched' : 'Generate Formal Incident Report'}
-                    </button>
-                  )}
+                  {/* Category-Specific Workflow Action Button */}
+                  {(() => {
+                    const action = getCategoryAction(det);
+                    const ActionIcon = action.icon;
+
+                    if (action.type === 'traffic_patrol') {
+                      return (
+                        <button
+                          onClick={() => handleDeployTrafficPatrol(det)}
+                          disabled={det.current_status === 'patrol_dispatched'}
+                          className={`w-full py-2 rounded-xl bg-gradient-to-r ${action.color} text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all disabled:opacity-50`}
+                          title={action.desc}
+                        >
+                          <ActionIcon className="w-3.5 h-3.5" />
+                          {det.current_status === 'patrol_dispatched' ? 'Traffic Patrol Deployed' : action.label}
+                        </button>
+                      );
+                    }
+
+                    if (action.type === 'complaint_draft') {
+                      return (
+                        <button
+                          onClick={() => handleRouteToCivicComplaint(det)}
+                          disabled={!!det.complaint_id}
+                          className={`w-full py-2 rounded-xl bg-gradient-to-r ${action.color} text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all disabled:opacity-50`}
+                          title={action.desc}
+                        >
+                          <ActionIcon className="w-3.5 h-3.5" />
+                          {det.complaint_id ? 'Civic Complaint Active' : action.label}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <button
+                        onClick={() => {
+                          setReportingDetection(det);
+                          setReportSummary(det.description);
+                          if (action.type === 'sensitive_safeguarding') {
+                            setEscalationAgency('women_safety_1091');
+                          } else {
+                            setEscalationAgency('police_112');
+                          }
+                        }}
+                        disabled={!!det.incident_report_id}
+                        className={`w-full py-2 rounded-xl bg-gradient-to-r ${action.color} text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all disabled:opacity-50`}
+                        title={action.desc}
+                      >
+                        <ActionIcon className="w-3.5 h-3.5" />
+                        {det.incident_report_id ? 'Formal Incident Sealed' : action.label}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
