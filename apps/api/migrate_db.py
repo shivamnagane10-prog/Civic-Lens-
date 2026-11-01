@@ -141,7 +141,7 @@ def migrate_file(db_path):
     )
     ''')
 
-    # 3b. cctv_analysis_jobs table creation
+    # 3b. cctv_analysis_jobs table creation & migration
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS cctv_analysis_jobs (
         id VARCHAR(36) PRIMARY KEY,
@@ -158,71 +158,78 @@ def migrate_file(db_path):
         fps FLOAT DEFAULT 30.0,
         duration_ms FLOAT DEFAULT 0.0,
         detections_count INTEGER DEFAULT 0,
+        scene_understanding TEXT,
         error_message TEXT,
         created_at DATETIME,
         completed_at DATETIME
     )
     ''')
 
-    # Seed realistic bounding boxes and multi-category detections for recordings
-    cursor.execute("SELECT id FROM cctv_detections WHERE bounding_box IS NOT NULL")
-    has_bbox = cursor.fetchall()
-    if len(has_bbox) < 4:
-        print("Enriching cctv_detections with real bounding boxes and category-specific coordinates...")
-        # Update existing records with real coordinates
-        pothole_bbox = json.dumps({"x": 410, "y": 380, "w": 280, "h": 160, "orig_w": 1280, "orig_h": 720, "norm_x": 0.32, "norm_y": 0.528, "norm_w": 0.219, "norm_h": 0.222})
-        assault_bbox = json.dumps({"x": 510, "y": 240, "w": 260, "h": 320, "orig_w": 1280, "orig_h": 720, "norm_x": 0.398, "norm_y": 0.333, "norm_w": 0.203, "norm_h": 0.444})
-        forced_bbox = json.dumps({"x": 380, "y": 250, "w": 300, "h": 340, "orig_w": 1280, "orig_h": 720, "norm_x": 0.297, "norm_y": 0.347, "norm_w": 0.234, "norm_h": 0.472})
-        water_bbox = json.dumps({"x": 200, "y": 420, "w": 650, "h": 220, "orig_w": 1280, "orig_h": 720, "norm_x": 0.156, "norm_y": 0.583, "norm_w": 0.508, "norm_h": 0.306})
-        traffic_bbox = json.dumps({"x": 320, "y": 288, "w": 640, "h": 252, "orig_w": 1280, "orig_h": 720, "norm_x": 0.25, "norm_y": 0.40, "norm_w": 0.50, "norm_h": 0.35})
-        waste_bbox = json.dumps({"x": 768, "y": 468, "w": 320, "h": 180, "orig_w": 1280, "orig_h": 720, "norm_x": 0.60, "norm_y": 0.65, "norm_w": 0.25, "norm_h": 0.25})
+    cursor.execute('PRAGMA table_info(cctv_analysis_jobs)')
+    job_cols = [r[1] for r in cursor.fetchall()]
+    if 'scene_understanding' not in job_cols:
+        cursor.execute('ALTER TABLE cctv_analysis_jobs ADD COLUMN scene_understanding TEXT')
 
-        cursor.execute("UPDATE cctv_detections SET category = 'road_damage', bounding_box = ? WHERE id = 'EVT-CP-081'", (pothole_bbox,))
-        cursor.execute("UPDATE cctv_detections SET category = 'assault_violence', bounding_box = ? WHERE id = 'EVT-JP-104'", (assault_bbox,))
-        cursor.execute("UPDATE cctv_detections SET category = 'forced_movement', bounding_box = ? WHERE id = 'EVT-BH-203'", (forced_bbox,))
-        cursor.execute("UPDATE cctv_detections SET category = 'waterlogging_flood', bounding_box = ? WHERE id = 'EVT-FC-501'", (water_bbox,))
+    # Clean up fabricated multi-incident clutter from normal urban road recordings
+    cursor.execute("DELETE FROM cctv_detections WHERE recording_id IN ('REC-DL-101-01', 'REC-DEMO-7256E7', 'REC-DEMO-CF9D47')")
+    # Clean up cross-category contamination from dedicated demo recordings
+    cursor.execute("DELETE FROM cctv_detections WHERE id IN ('EVT-ROAD-0C8F92', 'EVT-GARB-898872')")
 
-        # Seed additional multi-category detections for REC-DL-101-01 so full multi-category timeline & overlay works
-        extra_dets = [
-            ("EVT-DL101-TRAF", "CAM-DL-101", "REC-DL-101-01", "traffic_safety", "vehicle_congestion", 0.94, 5,
-             "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=600&q=80",
-             "Severe vehicular queue formation with persistent standstill across primary transit lanes.",
-             json.dumps(["Velocity drop < 4 km/h", "Queue backlog > 60m radius"]), "high", "verified",
-             traffic_bbox, "CivicLens-TrafficNet-v2.2", "2.2.0"),
-            ("EVT-DL101-GARB", "CAM-DL-101", "REC-DL-101-01", "garbage_waste", "garbage_pile_accumulation", 0.91, 22,
-             "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=600&q=80",
-             "Refuse bag pile and overflowing container accumulation observed near sidewalk curb.",
-             json.dumps(["Ground refuse cluster > 3.8 sq meters", "Overflowing container"]), "medium", "pending_review",
-             waste_bbox, "CivicLens-WasteNet-v2.2", "2.2.0"),
-            ("EVT-DL101-WATE", "CAM-DL-101", "REC-DL-101-01", "waterlogging_flood", "standing_water_roadway", 0.93, 36,
-             "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=600&q=80",
-             "Surface water pooling along roadway shoulder causing vehicle spray and lane constriction.",
-             json.dumps(["Specular sheen reflection > 24 sq meters", "Tire spray detected"]), "high", "pending_review",
-             water_bbox, "CivicLens-HydroNet-v2.2", "2.2.0"),
-        ]
-        for ed in extra_dets:
-            cursor.execute('''
-            INSERT OR REPLACE INTO cctv_detections (
-                id, camera_id, recording_id, category, event_type, confidence, timestamp_offset_seconds,
-                snapshot_url, description, observable_indicators, priority, review_status,
-                bounding_box, model_name, model_version, created_at, incident_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-            ''', ed)
+    # Seed baseline scene understanding for normal urban road recording REC-DL-101-01
+    urban_scene_understanding = json.dumps({
+        "scene_type": "urban_commercial_road",
+        "scene_label": "Urban Commercial Road",
+        "traffic_condition": "normal_traffic_flow",
+        "traffic_condition_label": "Normal Traffic Flow",
+        "object_counts": {
+            "vehicles": 8,
+            "cars": 4,
+            "motorcycles_scooters": 3,
+            "buses_trucks": 1,
+            "pedestrians": 4,
+            "buildings_shops": 5,
+            "streetlights": 2,
+            "road_surfaces": 1
+        },
+        "detected_objects": [
+            {
+                "id": "OBJ-CAR-01", "label": "Car / Passenger Vehicle", "category": "car", "confidence": 0.94, "tracking_id": "TRK-01",
+                "bounding_box": {"x": 614, "y": 560, "w": 420, "h": 216, "norm_x": 0.32, "norm_y": 0.52, "norm_w": 0.22, "norm_h": 0.20}
+            },
+            {
+                "id": "OBJ-BIKE-02", "label": "Motorcycle / Scooter", "category": "two_wheeler", "confidence": 0.91, "tracking_id": "TRK-02",
+                "bounding_box": {"x": 1152, "y": 626, "w": 230, "h": 194, "norm_x": 0.60, "norm_y": 0.58, "norm_w": 0.12, "norm_h": 0.18}
+            },
+            {
+                "id": "OBJ-PED-03", "label": "Pedestrian", "category": "pedestrian", "confidence": 0.89, "tracking_id": "TRK-03",
+                "bounding_box": {"x": 345, "y": 518, "w": 115, "h": 172, "norm_x": 0.18, "norm_y": 0.48, "norm_w": 0.06, "norm_h": 0.16}
+            },
+            {
+                "id": "OBJ-BLD-04", "label": "Building / Commercial Facade", "category": "building", "confidence": 0.95, "tracking_id": "TRK-04",
+                "bounding_box": {"x": 192, "y": 108, "w": 576, "h": 324, "norm_x": 0.10, "norm_y": 0.10, "norm_w": 0.30, "norm_h": 0.30}
+            }
+        ],
+        "scene_summary": "Urban commercial road with multiple vehicles, buildings, shops, and pedestrian-side infrastructure. Normal traffic activity is visible. No additional civic or public-safety incident is established from the available visual evidence.",
+        "visibility": "clear_daylight",
+        "visibility_label": "Clear Daylight",
+        "analyzed_duration_seconds": 60,
+        "frames_analyzed": 40,
+        "total_incident_candidates_evaluated": 8,
+        "incident_candidates_rejected": 8,
+        "verified_incidents_count": 0
+    })
 
-    # Seed initial completed analysis job for REC-DL-101-01
-    cursor.execute("SELECT count(*) FROM cctv_analysis_jobs WHERE recording_id = 'REC-DL-101-01'")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute('''
-        INSERT INTO cctv_analysis_jobs (
-            id, recording_id, camera_id, status, progress_percent, current_step,
-            categories, frames_analyzed, video_duration_seconds, original_width,
-            original_height, fps, duration_ms, detections_count, created_at, completed_at
-        ) VALUES (
-            'JOB-DL101-001', 'REC-DL-101-01', 'CAM-DL-101', 'completed_detections_found',
-            100, 'Inference complete — 4 verified events detected across 8 configured vision pipelines',
-            ?, 120, 60, 1280, 720, 30.0, 482.5, 4, datetime('now'), datetime('now')
-        )
-        ''', (json.dumps(["traffic_safety", "road_damage", "garbage_waste", "waterlogging_flood"]),))
+    cursor.execute('''
+    INSERT OR REPLACE INTO cctv_analysis_jobs (
+        id, recording_id, camera_id, status, progress_percent, current_step,
+        categories, frames_analyzed, video_duration_seconds, original_width,
+        original_height, fps, duration_ms, detections_count, scene_understanding, created_at, completed_at
+    ) VALUES (
+        'JOB-DL101-001', 'REC-DL-101-01', 'CAM-DL-101', 'completed_no_detections',
+        100, 'Analysis complete — Urban Commercial Road: Normal Traffic Flow. 0 incidents detected.',
+        ?, 40, 60, 1920, 1080, 30.0, 482.5, 0, ?, datetime('now'), datetime('now')
+    )
+    ''', (json.dumps(["traffic_safety", "road_damage", "garbage_waste", "waterlogging_flood", "assault_violence", "forced_movement", "sexual_violence_sensitive", "other_public_safety"]), urban_scene_understanding))
 
     # 4. Seed official staff & sample police cases if empty
     cursor.execute("SELECT count(*) FROM users WHERE role = 'police'")

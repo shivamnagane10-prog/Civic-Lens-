@@ -121,6 +121,7 @@ class AnalysisJobModel(Base):
     fps = Column(Float, default=30.0)
     duration_ms = Column(Float, default=0.0)
     detections_count = Column(Integer, default=0)
+    scene_understanding = Column(Text, nullable=True)  # JSON scene understanding & object inventory
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)

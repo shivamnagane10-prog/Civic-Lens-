@@ -441,6 +441,9 @@ export class ApiClient {
     duration_ms: number;
     frames_analyzed: number;
     video_duration_seconds: number;
+    scene_understanding?: any;
+    detected_objects?: any[];
+    rejected_candidates?: any[];
     detections: CctvDetection[];
   }> {
     return this.request('/cctv/analyze-video', {

@@ -778,46 +778,36 @@ async def run_multi_category_video_analysis(
         raise HTTPException(status_code=500, detail=f"Video inference engine failure: {str(exc)}")
 
     created_detections = []
-    for d_data in analysis_res["detections"]:
-        # Duplicate prevention check or update existing detection with recording & bounding box
-        existing = db.query(CctvDetectionModel).filter(
-            CctvDetectionModel.camera_id == cam.id,
-            CctvDetectionModel.event_type == d_data["event_type"],
-            CctvDetectionModel.timestamp_offset_seconds == d_data["timestamp_offset_seconds"]
-        ).first()
+    # If this recording is being analyzed, clear previous obsolete or false positive detections for this recording
+    if payload.recording_id:
+        db.query(CctvDetectionModel).filter(CctvDetectionModel.recording_id == payload.recording_id).delete(synchronize_session=False)
+        db.commit()
 
-        if existing:
-            if payload.recording_id:
-                existing.recording_id = payload.recording_id
-            if d_data.get("bounding_box"):
-                existing.bounding_box = json.dumps(d_data["bounding_box"])
-            existing.category = d_data["category"]
-            created_detections.append(existing)
-        else:
-            det = CctvDetectionModel(
-                id=d_data["id"],
-                camera_id=cam.id,
-                recording_id=payload.recording_id,
-                category=d_data["category"],
-                event_type=d_data["event_type"],
-                confidence=d_data["confidence"],
-                timestamp_offset_seconds=d_data["timestamp_offset_seconds"],
-                incident_time=datetime.fromisoformat(d_data["incident_time"]),
-                snapshot_url=d_data["snapshot_url"],
-                video_url=d_data["video_url"],
-                description=d_data["description"],
-                observable_indicators=json.dumps(d_data["observable_indicators"]),
-                priority=d_data["priority"],
-                review_status="pending_review",
-                model_name=d_data["model_name"],
-                model_version=d_data["model_version"],
-                bounding_box=json.dumps(d_data["bounding_box"]) if d_data.get("bounding_box") else None,
-                is_restricted=d_data["is_restricted"],
-                validation_metrics=json.dumps(d_data["validation_metrics"]) if d_data.get("validation_metrics") else None,
-                created_at=datetime.fromisoformat(d_data["created_at"])
-            )
-            db.add(det)
-            created_detections.append(det)
+    for d_data in analysis_res["detections"]:
+        det = CctvDetectionModel(
+            id=d_data["id"],
+            camera_id=cam.id,
+            recording_id=payload.recording_id,
+            category=d_data["category"],
+            event_type=d_data["event_type"],
+            confidence=d_data["confidence"],
+            timestamp_offset_seconds=d_data["timestamp_offset_seconds"],
+            incident_time=datetime.fromisoformat(d_data["incident_time"]),
+            snapshot_url=d_data["snapshot_url"],
+            video_url=d_data.get("video_url") or video_source,
+            description=d_data["description"],
+            observable_indicators=json.dumps(d_data["observable_indicators"]),
+            priority=d_data["priority"],
+            review_status="pending_review",
+            model_name=d_data["model_name"],
+            model_version=d_data["model_version"],
+            bounding_box=json.dumps(d_data["bounding_box"]) if d_data.get("bounding_box") else None,
+            is_restricted=d_data["is_restricted"],
+            validation_metrics=json.dumps(d_data["validation_metrics"]) if d_data.get("validation_metrics") else None,
+            created_at=datetime.fromisoformat(d_data["created_at"])
+        )
+        db.add(det)
+        created_detections.append(det)
 
     if created_detections:
         db.commit()
@@ -826,11 +816,16 @@ async def run_multi_category_video_analysis(
 
     all_responses = [_detection_to_response(d, db) for d in created_detections]
 
-    # Update analysis job to terminal status
+    # Update analysis job to terminal status with Scene Understanding
     det_count = len(created_detections)
     job.status = "completed_detections_found" if det_count > 0 else "completed_no_detections"
     job.progress_percent = 100
-    job.current_step = f"Inference complete — {det_count} detections found across {analysis_res['frames_analyzed']} frames"
+    scene_u = analysis_res.get("scene_understanding") or {}
+    job.scene_understanding = json.dumps(scene_u)
+    if det_count > 0:
+        job.current_step = f"Inference complete — {det_count} verified incident(s) detected across {analysis_res['frames_analyzed']} frames"
+    else:
+        job.current_step = f"Analysis complete — {scene_u.get('scene_label', 'Urban Road')}: {scene_u.get('traffic_condition_label', 'Normal Flow')}. 0 incidents detected."
     job.frames_analyzed = analysis_res["frames_analyzed"]
     job.video_duration_seconds = analysis_res["video_duration_seconds"]
     job.duration_ms = analysis_res["duration_ms"]
@@ -853,37 +848,18 @@ async def run_multi_category_video_analysis(
         "duration_ms": analysis_res["duration_ms"],
         "frames_analyzed": analysis_res["frames_analyzed"],
         "video_duration_seconds": analysis_res["video_duration_seconds"],
+        "scene_understanding": scene_u,
+        "detected_objects": analysis_res.get("detected_objects", []),
+        "rejected_candidates": analysis_res.get("rejected_candidates", []),
         "detections": all_responses
     }
 
 
 @router.get("/recordings/{recording_id}/job")
 def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db)):
-    """Get the latest analysis job status and metadata for a recording segment."""
+    """Get the latest analysis job status, scene understanding, and metadata for a recording segment."""
     job = db.query(AnalysisJobModel).filter(AnalysisJobModel.recording_id == recording_id).order_by(AnalysisJobModel.created_at.desc()).first()
     if not job:
-        # Check if detections exist for this recording
-        det_count = db.query(CctvDetectionModel).filter(CctvDetectionModel.recording_id == recording_id).count()
-        if det_count > 0:
-            return {
-                "id": f"JOB-ARCHIVE-{recording_id}",
-                "recording_id": recording_id,
-                "camera_id": "CAM-DL-101",
-                "status": "completed_detections_found",
-                "progress_percent": 100,
-                "current_step": f"Inference complete — {det_count} detections verified",
-                "categories": list(MODEL_CATALOG.keys()),
-                "frames_analyzed": 120,
-                "video_duration_seconds": 60,
-                "original_width": 1280,
-                "original_height": 720,
-                "fps": 30.0,
-                "duration_ms": 480.0,
-                "detections_count": det_count,
-                "error_message": None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "completed_at": datetime.now(timezone.utc).isoformat()
-            }
         return {
             "id": "NONE",
             "recording_id": recording_id,
@@ -899,6 +875,8 @@ def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db))
             "fps": 30.0,
             "duration_ms": 0.0,
             "detections_count": 0,
+            "scene_understanding": None,
+            "detected_objects": [],
             "error_message": None,
             "created_at": None,
             "completed_at": None
@@ -910,6 +888,13 @@ def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db))
             cats = json.loads(job.categories)
         except Exception:
             cats = []
+
+    scene_u = None
+    if getattr(job, "scene_understanding", None):
+        try:
+            scene_u = json.loads(job.scene_understanding)
+        except Exception:
+            scene_u = None
 
     return {
         "id": job.id,
@@ -926,6 +911,8 @@ def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db))
         "fps": job.fps,
         "duration_ms": job.duration_ms,
         "detections_count": job.detections_count,
+        "scene_understanding": scene_u,
+        "detected_objects": scene_u.get("detected_objects", []) if scene_u else [],
         "error_message": job.error_message,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None

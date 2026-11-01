@@ -197,7 +197,9 @@ class AnalysisJobResponse(BaseModel):
     fps: float
     duration_ms: float
     detections_count: int
+    scene_understanding: Optional[Dict[str, Any]] = None
+    detected_objects: Optional[List[Dict[str, Any]]] = None
     error_message: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     detections: Optional[List[CctvDetectionResponse]] = None

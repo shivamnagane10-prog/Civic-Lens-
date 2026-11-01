@@ -407,6 +407,50 @@ export type AnalysisJobStatus =
   | 'unsupported_category'
   | 'insufficient_evidence';
 
+export interface SceneObjectDetection {
+  id: string;
+  label: string;
+  category: string;
+  confidence: number;
+  tracking_id?: string;
+  bounding_box: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    norm_x: number;
+    norm_y: number;
+    norm_w: number;
+    norm_h: number;
+  };
+}
+
+export interface SceneUnderstanding {
+  scene_type: string;
+  scene_label: string;
+  traffic_condition: string;
+  traffic_condition_label: string;
+  object_counts: {
+    vehicles: number;
+    cars?: number;
+    motorcycles_scooters?: number;
+    buses_trucks?: number;
+    pedestrians: number;
+    buildings_shops?: number;
+    streetlights?: number;
+    waste_containers?: number;
+    road_surfaces?: number;
+  };
+  detected_objects?: SceneObjectDetection[];
+  scene_summary: string;
+  visibility: string;
+  analyzed_duration_seconds: number;
+  frames_analyzed: number;
+  total_incident_candidates_evaluated: number;
+  incident_candidates_rejected: number;
+  verified_incidents_count: number;
+}
+
 export interface AnalysisJob {
   id: string;
   recording_id: string;
@@ -422,6 +466,8 @@ export interface AnalysisJob {
   fps: number;
   duration_ms: number;
   detections_count: number;
+  scene_understanding?: SceneUnderstanding | null;
+  detected_objects?: SceneObjectDetection[];
   error_message?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
