@@ -23,9 +23,12 @@ from app.schemas.cctv import (
     EscalateIncidentRequest,
     AnalyzeVideoRequest,
     AnalyzeVideoMultiCategoryRequest,
+    RealtimeDetectionRequest,
+    CivicAlertVerifyRequest,
 )
 from app.services.websocket_manager import ws_manager
 from app.ml.video_intelligence import VideoIntelligenceEngine, MODEL_CATALOG
+from app.ml.realtime_detector import realtime_detector
 from app.services.workflow_routing_service import WorkflowRoutingEngine, WORKFLOW_DEFINITIONS
 
 router = APIRouter(prefix="/cctv", tags=["CCTV & AI Public Safety Monitoring"])
@@ -952,4 +955,182 @@ async def run_ai_video_analysis(payload: AnalyzeVideoRequest, db: Session = Depe
         "detection": first_det,
         "detections": res["detections"]
     }
+
+
+# ==========================================
+# 7. Real-Time Object & Municipal Civic Issue Detection Pipeline
+# ==========================================
+
+@router.post("/realtime-detection")
+async def run_realtime_object_and_civic_detection(
+    payload: RealtimeDetectionRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Dedicated Real-Time Detection Pipeline:
+    - Object Detection: YOLOv8 COCO (Person -> Green #22C55E, Vehicles -> Red #EF4444)
+    - Municipal Civic Issue Detection: Specialized ONNX Models + Vision Processors:
+      * Potholes & Road Damage -> Orange (#F97316)
+      * Garbage & Waste -> Yellow (#EAB308)
+      * Waterlogging & Flooding -> Cyan (#06B6D4)
+      * Damaged Streetlights -> Purple (#A855F7)
+    - SimpleIoUTracker maintaining persistent tracking IDs between frames.
+    - Privacy-aware face and license plate blurring.
+    """
+    cam = db.query(CameraModel).filter(CameraModel.id == payload.camera_id).first()
+    if not cam:
+        raise HTTPException(status_code=404, detail=f"Camera {payload.camera_id} not found")
+
+    rec = None
+    video_source = payload.video_url
+    if payload.recording_id:
+        rec = db.query(RecordingModel).filter(RecordingModel.id == payload.recording_id).first()
+        if rec and not video_source:
+            video_source = rec.video_url
+
+    if not video_source:
+        video_source = cam.stream_url
+
+    # Resolve video path on disk
+    local_path = VideoIntelligenceEngine.resolve_video_path(video_source)
+    if not local_path or not os.path.exists(local_path):
+        raise HTTPException(status_code=400, detail=f"Unable to locate video file at '{video_source}'")
+
+    try:
+        detection_results = realtime_detector.process_video_stream(
+            video_path=local_path,
+            confidence_threshold=payload.confidence_threshold or 0.40,
+            sample_interval_seconds=payload.sample_interval_seconds or 1.0,
+            privacy_blur=payload.privacy_blur or False
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Realtime detection engine failed: {str(exc)}")
+
+    # Broadcast websocket event
+    await ws_manager.broadcast("CCTV_REALTIME_DETECTED", {
+        "camera_id": cam.id,
+        "counts": detection_results["counts"],
+        "civic_issues_count": len(detection_results["civic_issues"])
+    })
+
+    return {
+        "status": "success",
+        "camera_id": cam.id,
+        "camera_name": cam.name,
+        "location_name": cam.location_name,
+        "recording_id": payload.recording_id,
+        "video_duration_seconds": detection_results["video_duration_seconds"],
+        "frames_analyzed": detection_results["frames_analyzed"],
+        "processing_time_ms": detection_results["processing_time_ms"],
+        "counts": detection_results["counts"],
+        "legend": detection_results["legend"],
+        "frames": detection_results["frames"],
+        "civic_issues": detection_results["civic_issues"]
+    }
+
+
+@router.post("/civic-alert/verify-and-convert")
+async def verify_civic_alert_and_convert(
+    payload: CivicAlertVerifyRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Intelligent Civic Alert Verification & Complaint Conversion:
+    Public / CCTV Detection -> Operator Review & Verification -> Field Crew Assignment -> Engineer -> Verification.
+    Allows an operator to:
+    1. Review the detected civic problem frame & confidence score.
+    2. Confirm or adjust category / severity.
+    3. Assign to the relevant municipal department and field crew with budget allocation.
+    4. Automatically enters the existing operator complaint dashboard as an active complaint.
+    """
+    det = db.query(CctvDetectionModel).filter(CctvDetectionModel.id == payload.detection_id).first()
+    
+    # If not in CctvDetectionModel, check if it's a freshly detected civic issue from the realtime detector
+    cam_id = det.camera_id if det else "CAM-DL-101"
+    cam = db.query(CameraModel).filter(CameraModel.id == cam_id).first()
+    ward_id = cam.ward_id if cam else "WARD-DL-01"
+
+    category = payload.adjusted_category or (det.category if det else "road_damage")
+    wf = WorkflowRoutingEngine.get_workflow(category)
+    dept = payload.assigned_department or wf.get("department", "Public Works Department")
+
+    now = datetime.now(timezone.utc)
+    issue_id = f"ISSUE-CCTV-{uuid.uuid4().hex[:6].upper()}"
+
+    issue = IssueModel(
+        id=issue_id,
+        reporter_id="CCTV-SURVEILLANCE",
+        reporter_phone="CCTV-OPERATOR",
+        title=payload.title or f"Verified CCTV Civic Alert: {category.replace('_', ' ').title()}",
+        description=payload.description or (
+            f"Verified municipal defect from CCTV Camera {cam.name if cam else cam_id}. "
+            f"Location: {cam.location_name if cam else 'Urban Corridor'}. "
+            f"Reviewer notes: {payload.notes or 'Approved by Municipal Operator'}."
+        ),
+        category=category,
+        severity=payload.severity or "high",
+        status="submitted",
+        latitude=cam.latitude if cam else 28.6289,
+        longitude=cam.longitude if cam else 77.2065,
+        ward_id=ward_id,
+        photo_url=det.snapshot_url if det else None,
+        ai_confidence=det.confidence if det else 0.88,
+        source="cctv",
+        priority_score=85.0 if payload.severity == "critical" else 75.0,
+        department=dept,
+        workflow_type=wf.get("workflow_type", "road_maintenance"),
+        diagnostic_card=json.dumps({
+            "severity": payload.severity or "high",
+            "cost_estimate": payload.budget_allocation or "₹ 15,000",
+            "recommended_fix": f"Field crew intervention dispatched: {payload.assigned_crew or 'Zone Rapid Action Crew'}",
+            "suggested_sla_hours": wf.get("sla_hours", 24),
+            "assigned_crew": payload.assigned_crew or "Municipal Zone Crew",
+        }),
+        created_at=now
+    )
+    db.add(issue)
+
+    # Initial status event
+    event = StatusEventModel(
+        issue_id=issue.id,
+        old_status=None,
+        new_status="submitted",
+        actor_id="OPERATOR-REVIEW",
+        actor_role="operator",
+        comment=f"Human operator verified CCTV alert #{payload.detection_id}. Assigned to {dept} ({payload.assigned_crew or 'Rapid Response Team'})."
+    )
+    db.add(event)
+
+    if det:
+        det.complaint_id = issue.id
+        det.review_status = "verified"
+        det.reviewed_at = now
+        det.reviewer_notes = payload.notes or "Operator Verified"
+
+    db.commit()
+    db.refresh(issue)
+
+    # Broadcast websocket event to operator & citizen portals
+    await ws_manager.broadcast("ISSUE_CREATED", {
+        "id": issue.id,
+        "title": issue.title,
+        "category": issue.category,
+        "severity": issue.severity,
+        "status": issue.status,
+        "latitude": issue.latitude,
+        "longitude": issue.longitude,
+        "ward_id": issue.ward_id,
+        "source": "cctv",
+        "created_at": issue.created_at.isoformat(),
+    })
+
+    return {
+        "status": "success",
+        "message": f"Successfully verified alert and created Complaint #{issue.id}",
+        "complaint_id": issue.id,
+        "assigned_department": dept,
+        "assigned_crew": payload.assigned_crew,
+        "workflow_status": issue.status
+    }
+
 

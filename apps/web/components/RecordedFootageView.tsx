@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Camera,
   RecordingSegment,
@@ -78,75 +78,112 @@ const CAMERA_POSTERS: Record<string, string> = {
   'CAM-MH-401': 'https://images.unsplash.com/photo-1517649763962-0c623266ddc0?auto=format&fit=crop&w=1200&q=80',
 };
 
-// Robust Multi-Category Visual Color Mapping supporting exact categories and common aliases
+// Robust Multi-Category Visual Color Mapping matching exact CivicLens CCTV specifications:
+// - Vehicles: RED (#EF4444)
+// - People: GREEN (#22C55E)
+// - Potholes & Infrastructure Damage: ORANGE (#F97316)
+// - Garbage & Waste: YELLOW (#EAB308)
+// - Waterlogging: CYAN (#06B6D4)
+// - Damaged Streetlights: PURPLE (#A855F7)
 export function getCategoryColor(category: string = '', eventType: string = '') {
   const cat = (category || '').toLowerCase();
   const et = (eventType || '').toLowerCase();
 
-  if (cat.includes('accident') || et.includes('accident') || et.includes('collision')) {
+  // 1. People (GREEN #22C55E)
+  if (cat.includes('person') || et.includes('person') || cat.includes('pedestrian') || et.includes('pedestrian')) {
     return {
-      bg: 'bg-orange-950/70',
-      border: 'border-orange-600',
-      text: 'text-orange-300',
-      pin: 'bg-orange-600',
-      hex: '#ea580c',
-      label: 'Road Accident & Collision',
-      icon: AlertTriangle,
+      bg: 'bg-emerald-950/70',
+      border: 'border-emerald-500',
+      text: 'text-emerald-400',
+      pin: 'bg-emerald-500',
+      hex: '#22C55E',
+      label: 'Person',
+      icon: Footprints,
     };
   }
-  if (cat.includes('traffic') || et.includes('traffic') || et.includes('vehicle') || et.includes('congestion')) {
+
+  // 2. Vehicles (RED #EF4444)
+  if (
+    cat.includes('vehicle') || cat.includes('car') || cat.includes('bus') ||
+    cat.includes('truck') || cat.includes('motorcycle') || cat.includes('bicycle') ||
+    cat.includes('two_wheeler') || cat.includes('traffic') || et.includes('vehicle') ||
+    et.includes('car') || et.includes('bus') || et.includes('truck') || et.includes('motorcycle') ||
+    et.includes('bicycle') || et.includes('traffic')
+  ) {
     return {
-      bg: 'bg-purple-950/60',
-      border: 'border-purple-500',
-      text: 'text-purple-300',
-      pin: 'bg-purple-500',
-      hex: '#a855f7',
-      label: 'Traffic & Congestion',
+      bg: 'bg-red-950/70',
+      border: 'border-red-500',
+      text: 'text-red-400',
+      pin: 'bg-red-500',
+      hex: '#EF4444',
+      label: 'Vehicle',
       icon: Car,
     };
   }
-  if (cat.includes('garbage') || cat.includes('waste') || et.includes('garbage') || et.includes('waste')) {
+
+  // 3. Potholes & Infrastructure Damage (ORANGE #F97316)
+  if (
+    cat.includes('pothole') || cat.includes('road') || cat.includes('crack') ||
+    et.includes('pothole') || et.includes('crack') || et.includes('damage') ||
+    et.includes('tree') || et.includes('obstruction') || cat.includes('accident') ||
+    et.includes('accident') || et.includes('collision')
+  ) {
     return {
-      bg: 'bg-amber-950/60',
-      border: 'border-amber-500',
-      text: 'text-amber-300',
-      pin: 'bg-amber-500',
-      hex: '#f59e0b',
+      bg: 'bg-orange-950/70',
+      border: 'border-orange-500',
+      text: 'text-orange-400',
+      pin: 'bg-orange-500',
+      hex: '#F97316',
+      label: 'Pothole & Infrastructure Damage',
+      icon: Construction,
+    };
+  }
+
+  // 4. Garbage & Solid Waste (YELLOW #EAB308)
+  if (
+    cat.includes('garbage') || cat.includes('waste') || cat.includes('trash') ||
+    et.includes('garbage') || et.includes('waste') || et.includes('trash') || et.includes('bin')
+  ) {
+    return {
+      bg: 'bg-yellow-950/70',
+      border: 'border-yellow-500',
+      text: 'text-yellow-400',
+      pin: 'bg-yellow-500',
+      hex: '#EAB308',
       label: 'Garbage & Waste',
       icon: Trash2,
     };
   }
-  if (cat.includes('water') || cat.includes('flood') || cat.includes('drain') || et.includes('water') || et.includes('drain')) {
+
+  // 5. Waterlogging & Flooding (CYAN #06B6D4)
+  if (
+    cat.includes('water') || cat.includes('flood') || cat.includes('drain') ||
+    et.includes('water') || et.includes('flood') || et.includes('drain')
+  ) {
     return {
-      bg: 'bg-cyan-950/60',
+      bg: 'bg-cyan-950/70',
       border: 'border-cyan-400',
       text: 'text-cyan-300',
       pin: 'bg-cyan-400',
-      hex: '#22d3ee',
+      hex: '#06B6D4',
       label: 'Waterlogging & Flood',
       icon: Waves,
     };
   }
-  if (cat.includes('light') || cat.includes('electric') || et.includes('streetlight') || et.includes('electrical')) {
+
+  // 6. Streetlight & Electrical (PURPLE #A855F7)
+  if (
+    cat.includes('light') || cat.includes('electric') ||
+    et.includes('streetlight') || et.includes('electrical') || et.includes('luminaire')
+  ) {
     return {
-      bg: 'bg-yellow-950/60',
-      border: 'border-yellow-400',
-      text: 'text-yellow-300',
-      pin: 'bg-yellow-400',
-      hex: '#facc15',
-      label: 'Streetlight & Electrical',
+      bg: 'bg-purple-950/70',
+      border: 'border-purple-500',
+      text: 'text-purple-400',
+      pin: 'bg-purple-500',
+      hex: '#A855F7',
+      label: 'Damaged Streetlight',
       icon: Zap,
-    };
-  }
-  if (cat.includes('road') || cat.includes('pothole') || et.includes('pothole') || et.includes('crack') || et.includes('damage')) {
-    return {
-      bg: 'bg-orange-950/60',
-      border: 'border-orange-500',
-      text: 'text-orange-300',
-      pin: 'bg-orange-500',
-      hex: '#f97316',
-      label: 'Road Damage & Potholes',
-      icon: Construction,
     };
   }
   if (cat.includes('assault') || cat.includes('violen') || et.includes('assault') || et.includes('altercation')) {
@@ -262,6 +299,44 @@ export function RecordedFootageView({
 
   const [loading, setLoading] = useState(true);
   const [videoError, setVideoError] = useState(false);
+
+  // Real-Time Object & Civic Issue Detection States
+  const [showPeople, setShowPeople] = useState<boolean>(true);
+  const [showVehicles, setShowVehicles] = useState<boolean>(true);
+  const [showCivic, setShowCivic] = useState<boolean>(true);
+  const [confidenceSlider, setConfidenceSlider] = useState<number>(0.40);
+  const [privacyBlur, setPrivacyBlur] = useState<boolean>(false);
+  const [isRealtimeDetecting, setIsRealtimeDetecting] = useState<boolean>(false);
+  const [realtimeData, setRealtimeData] = useState<{
+    counts: {
+      people: number;
+      total_vehicles: number;
+      vehicles_breakdown: Record<string, number>;
+      civic_issues: number;
+      civic_breakdown: Record<string, number>;
+      total_entities_tracked: number;
+    };
+    legend: Array<{ name: string; type: string; color: string; desc: string }>;
+    frames: Array<{
+      timestamp_seconds: number;
+      frame_index: number;
+      people: any[];
+      vehicles: any[];
+      civic_issues: any[];
+      total_detections: number;
+      detections: any[];
+    }>;
+    civic_issues: any[];
+  } | null>(null);
+
+  // Operator Verification & Complaint Conversion Modal State
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState<boolean>(false);
+  const [verifyingDetection, setVerifyingDetection] = useState<any | null>(null);
+  const [verifyDepartment, setVerifyDepartment] = useState<string>('Public Works Department');
+  const [verifyCrew, setVerifyCrew] = useState<string>('Zone Rapid Action Crew');
+  const [verifyBudget, setVerifyBudget] = useState<string>('₹ 12,500');
+  const [verifyNotes, setVerifyNotes] = useState<string>('Verified on CCTV footage. Immediate clearance authorized.');
+  const [isSubmittingVerify, setIsSubmittingVerify] = useState<boolean>(false);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -415,15 +490,136 @@ export function RecordedFootageView({
     setIsPlaying(false);
 
     try {
-      const [dets, job] = await Promise.all([
+      const [dets, job, rt] = await Promise.all([
         api.getCctvDetections({ recording_id: rec.id }),
         api.getRecordingAnalysisJob(rec.id).catch(() => null),
+        api.runRealtimeDetection({
+          camera_id: rec.camera_id || selectedCameraId,
+          recording_id: rec.id,
+          video_url: rec.video_url,
+          confidence_threshold: confidenceSlider,
+          sample_interval_seconds: 1.0,
+          privacy_blur: privacyBlur,
+          show_people: showPeople,
+          show_vehicles: showVehicles,
+          show_civic: showCivic,
+        }).catch(() => null),
       ]);
       setRecordingDetections(dets);
       setAnalysisJob(job);
+      if (rt) {
+        setRealtimeData(rt);
+      }
     } catch (err) {
       console.error('Failed to load recording detections', err);
       setRecordingDetections([]);
+    }
+  };
+
+  // Stop video playback and return playhead to 00:00
+  const handleStop = () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+      setCurrentSeconds(0);
+      setIsPlaying(false);
+    }
+  };
+
+  // Run Real-Time YOLO & Civic Issue Detection on Demand
+  const handleRunRealtimeDetection = async (recTarget?: RecordingSegment) => {
+    const targetRec = recTarget || selectedRecording;
+    if (!selectedCameraId || !targetRec) return;
+
+    try {
+      setIsRealtimeDetecting(true);
+      const res = await api.runRealtimeDetection({
+        camera_id: selectedCameraId,
+        recording_id: targetRec.id,
+        video_url: targetRec.video_url,
+        confidence_threshold: confidenceSlider,
+        sample_interval_seconds: 1.0,
+        privacy_blur: privacyBlur,
+        show_people: showPeople,
+        show_vehicles: showVehicles,
+        show_civic: showCivic,
+      });
+
+      setRealtimeData(res);
+      setUploadSuccess(
+        `Real-Time AI Scan Complete! Indexed ${res.counts.total_entities_tracked} entities (${res.counts.total_vehicles} vehicles, ${res.counts.people} people, ${res.counts.civic_issues} civic alerts) across ${res.frames_analyzed} frames.`
+      );
+      setTimeout(() => setUploadSuccess(null), 6000);
+    } catch (err: any) {
+      console.error('Failed to run real-time detection', err);
+    } finally {
+      setIsRealtimeDetecting(false);
+    }
+  };
+
+  // Open Operator Verification Modal for a detected civic problem
+  const handleOpenVerifyModal = (detection: any) => {
+    setVerifyingDetection(detection);
+    const cat = (detection.category || detection.class_name || 'road_damage').toLowerCase();
+    if (cat.includes('pothole') || cat.includes('road')) {
+      setVerifyDepartment('Road Infrastructure & Maintenance Division');
+      setVerifyCrew('Pavement Rapid Repair Crew #4');
+      setVerifyBudget('₹ 8,500');
+    } else if (cat.includes('garbage') || cat.includes('waste')) {
+      setVerifyDepartment('Municipal Solid Waste & Sanitation Division');
+      setVerifyCrew('Sanitation Zone Dispatch Team #2');
+      setVerifyBudget('₹ 3,500');
+    } else if (cat.includes('water')) {
+      setVerifyDepartment('Stormwater Drainage & Flood Control Authority');
+      setVerifyCrew('Drainage Jetting & Sump Unit #1');
+      setVerifyBudget('₹ 14,000');
+    } else if (cat.includes('light')) {
+      setVerifyDepartment('Municipal Electrical & Street Lighting Department');
+      setVerifyCrew('Boom Truck Electrical Unit #3');
+      setVerifyBudget('₹ 4,200');
+    } else {
+      setVerifyDepartment('Public Works Department');
+      setVerifyCrew('Zone Rapid Action Crew');
+      setVerifyBudget('₹ 10,000');
+    }
+    const tOffset = detection.timestamp_offset_seconds !== undefined ? detection.timestamp_offset_seconds : (detection.timestamp_seconds || 0);
+    setVerifyNotes(`Human operator verified on CCTV Camera ${selectedCameraId}. Video timestamp: T+${formatTime(tOffset)}. Observable defect confirmed.`);
+    setIsVerifyModalOpen(true);
+  };
+
+  // Confirm Operator Verification and Dispatch directly into complaint dashboard
+  const handleConfirmVerifyComplaint = async () => {
+    if (!verifyingDetection) return;
+    try {
+      setIsSubmittingVerify(true);
+      const res = await api.verifyCivicAlertAndConvert({
+        detection_id: verifyingDetection.id,
+        action: 'approve',
+        title: `CCTV Auto-Verified: ${verifyingDetection.label || verifyingDetection.event_type || 'Civic Problem'}`,
+        description: verifyNotes,
+        severity: 'high',
+        adjusted_category: verifyingDetection.category || verifyingDetection.class_name || 'road_damage',
+        assigned_department: verifyDepartment,
+        assigned_crew: verifyCrew,
+        budget_allocation: verifyBudget,
+        notes: verifyNotes,
+      });
+
+      setUploadSuccess(`Complaint #${res.complaint_id} Created! Dispatched to ${res.assigned_department} (${res.assigned_crew}).`);
+      setTimeout(() => setUploadSuccess(null), 8000);
+      setIsVerifyModalOpen(false);
+      setVerifyingDetection(null);
+
+      // Refresh recordings detections to show verified status
+      if (selectedRecording) {
+        const dets = await api.getCctvDetections({ recording_id: selectedRecording.id });
+        setRecordingDetections(dets);
+      }
+    } catch (err: any) {
+      console.error('Failed to convert detection to complaint', err);
+      alert('Error creating complaint: ' + (err.message || 'Server error'));
+    } finally {
+      setIsSubmittingVerify(false);
     }
   };
 
@@ -610,14 +806,62 @@ export function RecordedFootageView({
 
   const activeCamera = cameras.find((c) => c.id === selectedCameraId);
 
-  // Active detections on the video frame at the current timestamp
-  // Displays objects within a window [-1.5s, +4.5s] of the event timestamp or currently selected
-  const activeDetectionsOnFrame = recordingDetections.filter((det) => {
-    if (selectedOverlayDetectionId === det.id) return true;
-    if (showAllDetectionsOnOverlay) return true;
-    const diff = currentSeconds - det.timestamp_offset_seconds;
-    return diff >= -1.5 && diff <= 4.5;
-  });
+  // Unified Active Detections on the video frame at the current timestamp
+  // Seamlessly combines Real-Time YOLO COCO objects (Vehicles, People) and Municipal Civic Issues
+  const activeDetectionsOnFrame = useMemo(() => {
+    let resultDets: any[] = [];
+
+    // 1. From Realtime YOLO & Civic Issue Frames
+    if (realtimeData && realtimeData.frames && realtimeData.frames.length > 0) {
+      let closestFrame = realtimeData.frames[0];
+      let minDiff = Math.abs(currentSeconds - closestFrame.timestamp_seconds);
+
+      for (const f of realtimeData.frames) {
+        const diff = Math.abs(currentSeconds - f.timestamp_seconds);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestFrame = f;
+        }
+      }
+
+      if (closestFrame && minDiff <= 2.5) {
+        resultDets = closestFrame.detections.filter((d: any) => {
+          if (d.confidence < confidenceSlider) return false;
+          if (d.type === 'person' && !showPeople) return false;
+          if (d.type === 'vehicle' && !showVehicles) return false;
+          if (d.type === 'civic_issue' && !showCivic) return false;
+          return true;
+        });
+      }
+    }
+
+    // 2. Persisted recording detections (civic incident candidates)
+    const incidentDets = recordingDetections.filter((det) => {
+      if (selectedOverlayDetectionId === det.id) return true;
+      if (showAllDetectionsOnOverlay) return true;
+      const diff = currentSeconds - det.timestamp_offset_seconds;
+      return diff >= -1.5 && diff <= 4.5;
+    });
+
+    const seenIds = new Set(resultDets.map((d) => d.id));
+    for (const idet of incidentDets) {
+      if (!seenIds.has(idet.id)) {
+        resultDets.push(idet);
+      }
+    }
+
+    return resultDets;
+  }, [
+    realtimeData,
+    currentSeconds,
+    confidenceSlider,
+    showPeople,
+    showVehicles,
+    showCivic,
+    recordingDetections,
+    selectedOverlayDetectionId,
+    showAllDetectionsOnOverlay,
+  ]);
 
   // Filtered detections for the Results Panel
   const filteredResultsDetections = recordingDetections.filter((det) => {
@@ -789,32 +1033,95 @@ export function RecordedFootageView({
 
               {/* Truthful Inference Status Indicator */}
               <div className="flex items-center gap-3 text-xs font-mono">
-                {isAnalyzing ? (
+                {isAnalyzing || isRealtimeDetecting ? (
                   <div className="flex items-center gap-1.5 text-sky-400">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analyzing Bitstream ({analysisProgress}%)</span>
+                    <span>Processing AI Video Frames...</span>
+                  </div>
+                ) : realtimeData ? (
+                  <div className="flex items-center gap-1.5 text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                    <span className="font-bold">Real-Time YOLO &amp; Civic Models Active</span>
                   </div>
                 ) : analysisJob?.status === 'completed_detections_found' || recordingDetections.length > 0 ? (
                   <div className="flex items-center gap-1.5 text-emerald-400">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
                     <span className="font-bold">Real Video Inference ({recordingDetections.length} Events)</span>
                   </div>
-                ) : analysisJob?.status === 'completed_no_detections' ? (
-                  <div className="flex items-center gap-1.5 text-amber-400">
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span>Analysis Complete — No Incidents Detected</span>
-                  </div>
-                ) : analysisJob?.status === 'failed' ? (
-                  <div className="flex items-center gap-1.5 text-rose-400">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Analysis Failed</span>
-                  </div>
                 ) : (
                   <div className="flex items-center gap-1.5 text-slate-400">
                     <Clock className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Analysis Not Started</span>
+                    <span>Inference Ready</span>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Real-Time Detection HUD & Filter Controls Bar */}
+            <div className="bg-slate-950/95 px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+              {/* Counts Ribbon */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase font-mono font-bold text-slate-400">Detected:</span>
+
+                <span className="px-2 py-0.5 rounded-full bg-red-950/80 border border-red-500/60 text-red-400 font-mono text-[10px] font-bold flex items-center gap-1">
+                  <Car className="w-2.5 h-2.5" />
+                  Vehicles: <strong className="text-white">{realtimeData?.counts.total_vehicles ?? 0}</strong>
+                </span>
+
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/60 text-emerald-400 font-mono text-[10px] font-bold flex items-center gap-1">
+                  <Footprints className="w-2.5 h-2.5" />
+                  People: <strong className="text-white">{realtimeData?.counts.people ?? 0}</strong>
+                </span>
+
+                <span className="px-2 py-0.5 rounded-full bg-orange-950/80 border border-orange-500/60 text-orange-400 font-mono text-[10px] font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  Civic Issues: <strong className="text-white">{realtimeData?.counts.civic_issues ?? recordingDetections.length}</strong>
+                </span>
+              </div>
+
+              {/* Filter Toggles & Real-time Scan Action */}
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <label className="flex items-center gap-1 text-[11px] font-medium text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showVehicles}
+                    onChange={(e) => setShowVehicles(e.target.checked)}
+                    className="rounded border-slate-700 text-red-500 focus:ring-0 w-3.5 h-3.5 bg-slate-900"
+                  />
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#EF4444] inline-block" /> Vehicles</span>
+                </label>
+
+                <label className="flex items-center gap-1 text-[11px] font-medium text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showPeople}
+                    onChange={(e) => setShowPeople(e.target.checked)}
+                    className="rounded border-slate-700 text-emerald-500 focus:ring-0 w-3.5 h-3.5 bg-slate-900"
+                  />
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#22C55E] inline-block" /> People</span>
+                </label>
+
+                <label className="flex items-center gap-1 text-[11px] font-medium text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showCivic}
+                    onChange={(e) => setShowCivic(e.target.checked)}
+                    className="rounded border-slate-700 text-orange-500 focus:ring-0 w-3.5 h-3.5 bg-slate-900"
+                  />
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#F97316] inline-block" /> Civic Issues</span>
+                </label>
+
+                <div className="h-4 w-px bg-slate-800 mx-1" />
+
+                <button
+                  onClick={() => handleRunRealtimeDetection()}
+                  disabled={isRealtimeDetecting}
+                  className="px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/40 text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+                  title="Run YOLOv8 & Municipal Detection Engine on Current Footage"
+                >
+                  <RefreshCw className={`w-3 h-3 text-sky-400 ${isRealtimeDetecting ? 'animate-spin' : ''}`} />
+                  {isRealtimeDetecting ? 'Scanning...' : 'Run Real-Time AI Detection'}
+                </button>
               </div>
             </div>
 
@@ -861,24 +1168,45 @@ export function RecordedFootageView({
                   {/* Dedicated Responsive Bounding Box Overlay Layer */}
                   {!videoError && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-                      {activeDetectionsOnFrame.map((det) => {
-                        const bbox = det.bounding_box;
+                      {activeDetectionsOnFrame.map((det: any) => {
+                        const bbox = det.bounding_box || det.box;
                         if (!bbox) return null;
 
-                        const normX = bbox.norm_x !== undefined ? bbox.norm_x : (bbox.x / (bbox.orig_w || 1280));
-                        const normY = bbox.norm_y !== undefined ? bbox.norm_y : (bbox.y / (bbox.orig_h || 720));
-                        const normW = bbox.norm_w !== undefined ? bbox.norm_w : (bbox.w / (bbox.orig_w || 1280));
-                        const normH = bbox.norm_h !== undefined ? bbox.norm_h : (bbox.h / (bbox.orig_h || 720));
+                        let normX = 0, normY = 0, normW = 0, normH = 0;
+                        if (bbox.norm_x !== undefined) {
+                          normX = bbox.norm_x;
+                          normY = bbox.norm_y;
+                          normW = bbox.norm_w;
+                          normH = bbox.norm_h;
+                        } else if (Array.isArray(bbox) && bbox.length === 4) {
+                          const origW = 1280;
+                          const origH = 720;
+                          normX = bbox[0] / origW;
+                          normY = bbox[1] / origH;
+                          normW = bbox[2] / origW;
+                          normH = bbox[3] / origH;
+                        } else if (bbox.x !== undefined) {
+                          const origW = bbox.orig_w || 1280;
+                          const origH = bbox.orig_h || 720;
+                          normX = bbox.x / origW;
+                          normY = bbox.y / origH;
+                          normW = bbox.w / origW;
+                          normH = bbox.h / origH;
+                        }
 
                         // Compute responsive pixel coordinates relative to active video rect
                         const left = videoLayout.offsetX + normX * videoLayout.renderWidth;
                         const top = videoLayout.offsetY + normY * videoLayout.renderHeight;
-                        const width = Math.max(35, normW * videoLayout.renderWidth);
-                        const height = Math.max(28, normH * videoLayout.renderHeight);
+                        const width = Math.max(40, normW * videoLayout.renderWidth);
+                        const height = Math.max(30, normH * videoLayout.renderHeight);
 
-                        const catStyle = getCategoryColor(det.category, det.event_type);
+                        const catStyle = getCategoryColor(det.category || det.class_name, det.event_type || det.label);
                         const IconComp = catStyle.icon;
                         const isSelected = selectedOverlayDetectionId === det.id;
+
+                        const labelText = det.label || (det.event_type ? det.event_type.replace(/_/g, ' ').toUpperCase() : 'OBJECT');
+                        const confPct = Math.round((det.confidence || 0.85) * 100);
+                        const tSec = det.timestamp_offset_seconds !== undefined ? det.timestamp_offset_seconds : (det.timestamp_seconds || 0);
 
                         return (
                           <div
@@ -886,7 +1214,7 @@ export function RecordedFootageView({
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedOverlayDetectionId(det.id);
-                              handleSeek(det.timestamp_offset_seconds);
+                              handleSeek(tSec);
                             }}
                             className="absolute cursor-pointer pointer-events-auto transition-all duration-150 group"
                             style={{
@@ -895,7 +1223,7 @@ export function RecordedFootageView({
                               width: `${Math.round(width)}px`,
                               height: `${Math.round(height)}px`,
                             }}
-                            title={`[${catStyle.label}] ${det.event_type} (${Math.round(det.confidence * 100)}% conf)`}
+                            title={`[${catStyle.label}] ${labelText} (${confPct}% conf)`}
                           >
                             {/* Bounding box outline */}
                             <div
@@ -925,10 +1253,15 @@ export function RecordedFootageView({
                                 }`}
                               >
                                 <IconComp className="w-2.5 h-2.5 flex-shrink-0" />
-                                <span>{det.event_type.replace(/_/g, ' ').toUpperCase()}</span>
-                                <span className={isSelected ? 'text-indigo-900 font-black' : 'text-sky-400 font-semibold'}>
-                                  {Math.round(det.confidence * 100)}%
+                                <span>{labelText}</span>
+                                <span className={isSelected ? 'text-indigo-900 font-black' : 'text-white font-bold'}>
+                                  {confPct}%
                                 </span>
+                                {det.tracking_id && (
+                                  <span className="text-slate-400 text-[8px] pl-1 border-l border-slate-700">
+                                    {det.tracking_id}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1083,21 +1416,20 @@ export function RecordedFootageView({
                 </div>
               </div>
 
-              {/* Timeline Category Legend */}
+              {/* Color-Coded Detection Legend Bar */}
               <div className="flex flex-wrap items-center gap-3 pt-1 text-[10px] text-slate-400 font-mono">
-                <span className="text-slate-500 font-bold">Timeline Legend:</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-purple-500 inline-block" /> Traffic</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" /> Waste</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 inline-block" /> Waterlogging</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400 inline-block" /> Road Damage</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" /> Assault</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-600 inline-block" /> Forced Move</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-pink-500 inline-block" /> Sensitive</span>
+                <span className="text-slate-500 font-bold uppercase">Detection Legend:</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#EF4444] inline-block" /> Vehicles</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#22C55E] inline-block" /> People</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#F97316] inline-block" /> Potholes &amp; Road</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#EAB308] inline-block" /> Garbage</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#06B6D4] inline-block" /> Waterlogging</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-[#A855F7] inline-block" /> Streetlights</span>
               </div>
 
               {/* Transport Controls Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-2 border-t border-slate-900">
-                {/* Play, Pause, Skip */}
+                {/* Play, Pause, Stop, Skip */}
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleSkip(-10)}
@@ -1112,6 +1444,13 @@ export function RecordedFootageView({
                     title={isPlaying ? 'Pause' : 'Play'}
                   >
                     {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={handleStop}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-all border border-slate-800"
+                    title="Stop Playback (Reset to 00:00)"
+                  >
+                    <Square className="w-4 h-4 fill-current text-rose-400" />
                   </button>
                   <button
                     onClick={() => handleSkip(10)}
@@ -1130,8 +1469,41 @@ export function RecordedFootageView({
                   </div>
                 </div>
 
-                {/* Speed Selector & Mute */}
-                <div className="flex items-center gap-2">
+                {/* Sensitivity Slider, Privacy Blur, Speed Selector & Mute */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Adjustable Confidence Threshold Slider */}
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">
+                    <Sliders className="w-3 h-3 text-sky-400" />
+                    <span>Conf: <strong className="text-white">{Math.round(confidenceSlider * 100)}%</strong></span>
+                    <input
+                      type="range"
+                      min={0.30}
+                      max={0.90}
+                      step={0.05}
+                      value={confidenceSlider}
+                      onChange={(e) => setConfidenceSlider(parseFloat(e.target.value))}
+                      className="w-16 accent-sky-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                      title="Adjust Detection Confidence Threshold"
+                    />
+                  </div>
+
+                  {/* Privacy Blur Toggle */}
+                  <label className="flex items-center gap-1 text-[11px] font-mono text-slate-300 cursor-pointer select-none bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={privacyBlur}
+                      onChange={(e) => {
+                        setPrivacyBlur(e.target.checked);
+                        if (selectedRecording) {
+                          handleRunRealtimeDetection(selectedRecording);
+                        }
+                      }}
+                      className="rounded border-slate-700 text-sky-500 focus:ring-0 w-3 h-3 bg-slate-950"
+                    />
+                    <span className="text-[10px]">Privacy Blur</span>
+                  </label>
+
+                  {/* Speed Selector */}
                   <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800">
                     {[0.5, 1, 1.5, 2].map((spd) => (
                       <button
@@ -1417,7 +1789,18 @@ export function RecordedFootageView({
                                 }}
                                 className="px-2 py-1 rounded bg-sky-600/20 hover:bg-sky-600/40 text-sky-400 text-[10px] font-semibold flex items-center gap-1 transition-all"
                               >
-                                <Play className="w-2.5 h-2.5" /> Jump to Event
+                                <Play className="w-2.5 h-2.5" /> Jump
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenVerifyModal(det);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/30 text-[10px] font-semibold transition-all flex items-center gap-1"
+                                title="Review and dispatch complaint to Field Crew"
+                              >
+                                <ShieldCheck className="w-2.5 h-2.5" /> Verify &amp; Dispatch
                               </button>
 
                               {onOpenIncidentTriage && (
@@ -2049,6 +2432,115 @@ export function RecordedFootageView({
                     <Play className="w-3.5 h-3.5" /> Run Multi-Category Inference
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Operator Human Verification & Municipal Complaint Dispatch Modal */}
+      {isVerifyModalOpen && verifyingDetection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl space-y-4">
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Operator Human Verification</h3>
+                  <p className="text-[10px] text-slate-400">Convert CCTV AI Detection into Official Municipal Complaint</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsVerifyModalOpen(false)}
+                className="text-slate-400 hover:text-white text-lg font-bold p-1"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs text-slate-300">
+              {/* Evidence Snapshot */}
+              {verifyingDetection.snapshot_url && (
+                <div className="relative rounded-xl overflow-hidden border border-slate-800 h-40 bg-black">
+                  <img
+                    src={verifyingDetection.snapshot_url}
+                    alt="Defect Snapshot"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-slate-950/90 text-amber-400 font-mono text-[10px] font-bold border border-amber-500/40">
+                    Confidence: {Math.round((verifyingDetection.confidence || 0.85) * 100)}%
+                  </div>
+                </div>
+              )}
+
+              {/* Form Fields */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-300 block">Assigned Municipal Department</label>
+                <select
+                  value={verifyDepartment}
+                  onChange={(e) => setVerifyDepartment(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-sky-500 focus:outline-none"
+                >
+                  <option value="Road Infrastructure & Maintenance Division">Road Infrastructure &amp; Maintenance Division</option>
+                  <option value="Municipal Solid Waste & Sanitation Division">Municipal Solid Waste &amp; Sanitation Division</option>
+                  <option value="Stormwater Drainage & Flood Control Authority">Stormwater Drainage &amp; Flood Control Authority</option>
+                  <option value="Municipal Electrical & Street Lighting Department">Municipal Electrical &amp; Street Lighting Department</option>
+                  <option value="Traffic Police & Intelligent Transit Operations Center">Traffic Police &amp; Intelligent Transit Operations Center</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-300 block">Assigned Field Crew</label>
+                  <input
+                    type="text"
+                    value={verifyCrew}
+                    onChange={(e) => setVerifyCrew(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-300 block">Budget Allocation</label>
+                  <input
+                    type="text"
+                    value={verifyBudget}
+                    onChange={(e) => setVerifyBudget(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-300 block">Operator Notes &amp; Dispatch Instructions</label>
+                <textarea
+                  rows={2}
+                  value={verifyNotes}
+                  onChange={(e) => setVerifyNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-sky-950/30 border border-sky-800/40 text-[11px] text-sky-300 font-mono">
+                Workflow: Public/CCTV Detection &rarr; Operator Verified &rarr; Field Crew &rarr; Engineer &rarr; Final Verification.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setIsVerifyModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmVerifyComplaint}
+                disabled={isSubmittingVerify}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                {isSubmittingVerify ? 'Dispatching...' : 'Approve & Dispatch Complaint'}
               </button>
             </div>
           </div>

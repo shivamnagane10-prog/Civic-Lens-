@@ -467,6 +467,76 @@ export class ApiClient {
     });
   }
 
+  async runRealtimeDetection(payload: {
+    camera_id: string;
+    recording_id?: string;
+    video_url?: string;
+    confidence_threshold?: number;
+    sample_interval_seconds?: number;
+    privacy_blur?: boolean;
+    show_people?: boolean;
+    show_vehicles?: boolean;
+    show_civic?: boolean;
+  }): Promise<{
+    status: string;
+    camera_id: string;
+    camera_name: string;
+    location_name: string;
+    recording_id?: string;
+    video_duration_seconds: number;
+    frames_analyzed: number;
+    processing_time_ms: number;
+    counts: {
+      people: number;
+      total_vehicles: number;
+      vehicles_breakdown: Record<string, number>;
+      civic_issues: number;
+      civic_breakdown: Record<string, number>;
+      total_entities_tracked: number;
+    };
+    legend: Array<{ name: string; type: string; color: string; desc: string }>;
+    frames: Array<{
+      timestamp_seconds: number;
+      frame_index: number;
+      people: any[];
+      vehicles: any[];
+      civic_issues: any[];
+      total_detections: number;
+      detections: any[];
+    }>;
+    civic_issues: any[];
+  }> {
+    return this.request('/cctv/realtime-detection', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async verifyCivicAlertAndConvert(payload: {
+    detection_id: string;
+    action?: 'approve' | 'reject' | 'adjust';
+    title?: string;
+    description?: string;
+    severity?: string;
+    adjusted_category?: string;
+    assigned_department?: string;
+    assigned_crew?: string;
+    budget_allocation?: string;
+    notes?: string;
+  }): Promise<{
+    status: string;
+    message: string;
+    complaint_id: string;
+    assigned_department: string;
+    assigned_crew?: string;
+    workflow_status: string;
+  }> {
+    return this.request('/cctv/civic-alert/verify-and-convert', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   // ==========================================
   // Satellite Multispectral & CCTV Coverage Methods
   // ==========================================

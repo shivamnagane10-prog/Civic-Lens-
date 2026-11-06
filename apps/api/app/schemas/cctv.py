@@ -208,3 +208,27 @@ class AnalysisJobResponse(BaseModel):
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     detections: Optional[List[CctvDetectionResponse]] = None
+
+class RealtimeDetectionRequest(BaseModel):
+    camera_id: str
+    recording_id: Optional[str] = None
+    video_url: Optional[str] = None
+    confidence_threshold: Optional[float] = 0.40
+    sample_interval_seconds: Optional[float] = 1.0
+    privacy_blur: Optional[bool] = False
+    show_people: Optional[bool] = True
+    show_vehicles: Optional[bool] = True
+    show_civic: Optional[bool] = True
+
+class CivicAlertVerifyRequest(BaseModel):
+    detection_id: str
+    action: Literal["approve", "reject", "adjust"] = "approve"
+    title: Optional[str] = None
+    description: Optional[str] = None
+    severity: Optional[str] = "high"
+    adjusted_category: Optional[str] = None
+    assigned_department: Optional[str] = None
+    assigned_crew: Optional[str] = None
+    budget_allocation: Optional[str] = None
+    notes: Optional[str] = None
+

@@ -458,130 +458,108 @@ class VideoIntelligenceEngine:
         avg_flow = float(np.mean(flow_mags)) if flow_mags else 0.5
         std_flow = float(np.std(flow_mags)) if flow_mags else 0.1
 
-        # 4. Object Detection & Spatial Localization
-        mog = cv2.createBackgroundSubtractorMOG2(history=20, varThreshold=25, detectShadows=True)
-        fg_masks = []
-        for sf in sampled_frames[:15]:
-            fg = mog.apply(sf["frame"][split_y:, :])
-            fg_masks.append(fg)
-
-        final_fg = fg_masks[-1] if fg_masks else np.zeros((height - split_y, width), dtype=np.uint8)
-        _, fg_thresh = cv2.threshold(final_fg, 200, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        fg_clean = cv2.morphologyEx(fg_thresh, cv2.MORPH_CLOSE, kernel)
-        contours, _ = cv2.findContours(fg_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+        # 4. Real YOLO COCO Object Detection & Spatial Localization
+        from app.ml.realtime_detector import realtime_detector
         detected_objects: List[Dict[str, Any]] = []
         cars_count = 0
         two_wheelers_count = 0
         buses_count = 0
         pedestrians_count = 0
 
-        for c in contours:
-            area = cv2.contourArea(c)
-            if area < 800:
-                continue
-            bx, by, bw, bh = cv2.boundingRect(c)
-            aspect = bw / float(bh)
-            full_y = split_y + by
+        first_frame = sampled_frames[0]["frame"] if sampled_frames else None
+        if first_frame is not None:
+            try:
+                yolo_dets = realtime_detector.detect_objects_yolo(first_frame, confidence_threshold=0.38)
+                for yd in yolo_dets:
+                    cat = yd["class_name"]
+                    if cat == "car":
+                        cars_count += 1
+                    elif cat in ["motorcycle", "bicycle"]:
+                        two_wheelers_count += 1
+                    elif cat in ["bus", "truck"]:
+                        buses_count += 1
+                    elif cat == "person":
+                        pedestrians_count += 1
 
-            if area > 30000:
-                buses_count += 1
-                label = "Bus / Commercial Vehicle"
-                cat = "bus_truck"
-                conf = 0.92
-            elif area > 6000 and aspect > 0.75:
-                cars_count += 1
-                label = "Car / Passenger Vehicle"
-                cat = "car"
-                conf = 0.94
-            elif aspect < 0.65 and bh > 50:
-                pedestrians_count += 1
-                label = "Pedestrian"
-                cat = "pedestrian"
-                conf = 0.89
-            elif area > 1000:
-                two_wheelers_count += 1
-                label = "Motorcycle / Scooter"
-                cat = "two_wheeler"
-                conf = 0.91
-            else:
-                continue
+                    detected_objects.append({
+                        "id": yd["id"],
+                        "label": yd["label"],
+                        "category": yd["category"],
+                        "type": yd["type"],
+                        "confidence": yd["confidence"],
+                        "tracking_id": f"TRK-{len(detected_objects)+1:02d}",
+                        "bounding_box": yd["bounding_box"],
+                        "color": yd["color"]
+                    })
+            except Exception as e:
+                print(f"[VideoIntelligenceEngine] YOLO object detection error: {e}")
 
-            detected_objects.append({
-                "id": f"OBJ-{uuid.uuid4().hex[:6].upper()}",
-                "label": label,
-                "category": cat,
-                "confidence": conf,
-                "tracking_id": f"TRK-{len(detected_objects)+1:02d}",
-                "bounding_box": {
-                    "x": int(bx),
-                    "y": int(full_y),
-                    "w": int(bw),
-                    "h": int(bh),
-                    "norm_x": round(float(bx) / width, 4),
-                    "norm_y": round(float(full_y) / height, 7),
-                    "norm_w": round(float(bw) / width, 4),
-                    "norm_h": round(float(bh) / height, 4)
-                }
-            })
-
-        # Realistic baseline objects for standard urban streets
+        # Fallback to MOG2 background subtraction if no YOLO detections in synthetic frame
         if not detected_objects:
-            detected_objects = [
-                {
-                    "id": "OBJ-CAR-01",
-                    "label": "Car / Passenger Vehicle",
-                    "category": "car",
-                    "confidence": 0.94,
-                    "tracking_id": "TRK-01",
-                    "bounding_box": {
-                        "x": int(width * 0.32), "y": int(height * 0.52), "w": int(width * 0.22), "h": int(height * 0.20),
-                        "norm_x": 0.32, "norm_y": 0.52, "norm_w": 0.22, "norm_h": 0.20
-                    }
-                },
-                {
-                    "id": "OBJ-BIKE-02",
-                    "label": "Motorcycle / Scooter",
-                    "category": "two_wheeler",
-                    "confidence": 0.91,
-                    "tracking_id": "TRK-02",
-                    "bounding_box": {
-                        "x": int(width * 0.60), "y": int(height * 0.58), "w": int(width * 0.12), "h": int(height * 0.18),
-                        "norm_x": 0.60, "norm_y": 0.58, "norm_w": 0.12, "norm_h": 0.18
-                    }
-                },
-                {
-                    "id": "OBJ-PED-03",
-                    "label": "Pedestrian",
-                    "category": "pedestrian",
-                    "confidence": 0.89,
-                    "tracking_id": "TRK-03",
-                    "bounding_box": {
-                        "x": int(width * 0.18), "y": int(height * 0.48), "w": int(width * 0.06), "h": int(height * 0.16),
-                        "norm_x": 0.18, "norm_y": 0.48, "norm_w": 0.06, "norm_h": 0.16
-                    }
-                },
-                {
-                    "id": "OBJ-BLD-04",
-                    "label": "Building / Commercial Facade",
-                    "category": "building",
-                    "confidence": 0.95,
-                    "tracking_id": "TRK-04",
-                    "bounding_box": {
-                        "x": int(width * 0.10), "y": int(height * 0.10), "w": int(width * 0.30), "h": int(height * 0.30),
-                        "norm_x": 0.10, "norm_y": 0.10, "norm_w": 0.30, "norm_h": 0.30
-                    }
-                }
-            ]
-            cars_count = 4
-            two_wheelers_count = 3
-            buses_count = 1
-            pedestrians_count = 4
+            mog = cv2.createBackgroundSubtractorMOG2(history=20, varThreshold=25, detectShadows=True)
+            fg_masks = []
+            for sf in sampled_frames[:15]:
+                fg = mog.apply(sf["frame"][split_y:, :])
+                fg_masks.append(fg)
 
-        buildings_count = max(4, int(upper_edge_density * 120))
-        streetlights_count = 2
-        waste_containers_count = 1
+            final_fg = fg_masks[-1] if fg_masks else np.zeros((height - split_y, width), dtype=np.uint8)
+            _, fg_thresh = cv2.threshold(final_fg, 200, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            fg_clean = cv2.morphologyEx(fg_thresh, cv2.MORPH_CLOSE, kernel)
+            contours, _ = cv2.findContours(fg_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            for c in contours:
+                area = cv2.contourArea(c)
+                if area < 800:
+                    continue
+                bx, by, bw, bh = cv2.boundingRect(c)
+                aspect = bw / float(bh)
+                full_y = split_y + by
+
+                if area > 30000:
+                    buses_count += 1
+                    label = "Bus / Commercial Vehicle"
+                    cat = "bus_truck"
+                    conf = 0.92
+                elif area > 6000 and aspect > 0.75:
+                    cars_count += 1
+                    label = "Car / Passenger Vehicle"
+                    cat = "car"
+                    conf = 0.94
+                elif aspect < 0.65 and bh > 50:
+                    pedestrians_count += 1
+                    label = "Pedestrian"
+                    cat = "pedestrian"
+                    conf = 0.89
+                elif area > 1000:
+                    two_wheelers_count += 1
+                    label = "Motorcycle / Scooter"
+                    cat = "two_wheeler"
+                    conf = 0.91
+                else:
+                    continue
+
+                detected_objects.append({
+                    "id": f"OBJ-{uuid.uuid4().hex[:6].upper()}",
+                    "label": label,
+                    "category": cat,
+                    "confidence": conf,
+                    "tracking_id": f"TRK-{len(detected_objects)+1:02d}",
+                    "bounding_box": {
+                        "x": int(bx),
+                        "y": int(full_y),
+                        "w": int(bw),
+                        "h": int(bh),
+                        "norm_x": round(float(bx) / width, 4),
+                        "norm_y": round(float(full_y) / height, 7),
+                        "norm_w": round(float(bw) / width, 4),
+                        "norm_h": round(float(bh) / height, 4)
+                    }
+                })
+
+        buildings_count = max(1, int(upper_edge_density * 120))
+        streetlights_count = 1 if upper_edge_density > 0.01 else 0
+        waste_containers_count = 0
         total_vehicles = cars_count + two_wheelers_count + buses_count
 
         # 5. Scene Classification across 13 Supported Scene Types
