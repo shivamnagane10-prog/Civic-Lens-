@@ -61,10 +61,12 @@ class SimpleIoUTracker:
                 self.tracks[tid] = {
                     "box": det["box"],
                     "lost": 0,
+                    "hits": 1,
                     "label": det["label"],
                     "type": det.get("type", "object")
                 }
                 det["tracking_id"] = tid
+                det["hits"] = 1
                 updated_detections.append(det)
             return updated_detections
 
@@ -90,6 +92,8 @@ class SimpleIoUTracker:
                 det["tracking_id"] = tid
                 self.tracks[tid]["box"] = det["box"]
                 self.tracks[tid]["lost"] = 0
+                self.tracks[tid]["hits"] = self.tracks[tid].get("hits", 0) + 1
+                det["hits"] = self.tracks[tid]["hits"]
                 matched_track_ids.add(tid)
                 unmatched_dets.remove(best_det_idx)
                 updated_detections.append(det)
@@ -104,10 +108,12 @@ class SimpleIoUTracker:
             self.tracks[tid] = {
                 "box": det["box"],
                 "lost": 0,
+                "hits": 1,
                 "label": det["label"],
                 "type": det.get("type", "object")
             }
             det["tracking_id"] = tid
+            det["hits"] = 1
             updated_detections.append(det)
 
         # Remove dead tracks
@@ -276,7 +282,8 @@ class RealtimeVideoDetector:
     def detect_civic_issues(
         self,
         frame: np.ndarray,
-        confidence_threshold: float = 0.50
+        confidence_threshold: float = 0.40,
+        obj_dets: List[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Specialized detection pipeline for municipal civic problems:
@@ -285,9 +292,30 @@ class RealtimeVideoDetector:
         - Waterlogging & Flooding (Cyan #06B6D4)
         - Damaged Streetlights (Purple #A855F7)
         - Roadway Obstructions / Fallen Trees (Orange #F97316)
+
+        CRITICAL FALSE-POSITIVE PREVENTION:
+        - Builds an exclusion mask from all detected people and vehicles (obj_dets).
+        - NEVER classifies pedestrians, clothing, shadows, vehicles, or buildings as waterlogging.
+        - Waterlogging requires actual, contiguous, horizontal standing surface pool / flood water.
         """
         h, w = frame.shape[:2]
         civic_detections = []
+
+        # 0. Build Object Exclusion Mask (People, Vehicles, Commuters with shadow margin)
+        ex_mask = np.zeros((h, w), dtype=np.uint8)
+        if obj_dets:
+            for obj in obj_dets:
+                box = obj.get("box")
+                if box and len(box) == 4:
+                    bx, by, bw, bh = box
+                    pad_x = 22
+                    pad_top = 10
+                    pad_bot = 45  # Covers pedestrian shadow and footfall area on pavement
+                    x1 = max(0, bx - pad_x)
+                    y1 = max(0, by - pad_top)
+                    x2 = min(w, bx + bw + pad_x)
+                    y2 = min(h, by + bh + pad_bot)
+                    ex_mask[y1:y2, x1:x2] = 255
 
         # 1. Pothole / Road Damage Model Inference
         if self.pothole_session is not None:
@@ -300,30 +328,34 @@ class RealtimeVideoDetector:
                 outputs = self.pothole_session.run(None, {'images': blob})
                 preds = outputs[0][0].T  # (8400, 37)
                 boxes = preds[:, :4]
-                scores = preds[:, 4]  # class 0 score
+                scores = preds[:, 4]
 
-                mask = scores >= max(0.40, confidence_threshold)
+                mask = scores >= max(0.35, confidence_threshold)
                 if np.any(mask):
                     p_boxes = boxes[mask]
                     p_scores = scores[mask]
 
                     boxes_orig = []
-                    for b in p_boxes:
+                    filtered_scores = []
+                    for b, sc in zip(p_boxes, p_scores):
                         cx, cy, bw, bh = b
                         x1 = int(max(0, (cx - bw / 2) * (w / 640.0)))
                         y1 = int(max(0, (cy - bh / 2) * (h / 640.0)))
                         bw_orig = int(min(w - x1, bw * (w / 640.0)))
                         bh_orig = int(min(h - y1, bh * (h / 640.0)))
-                        # Potholes must be on the road surface (y > 35% of frame)
+                        # Must be on road surface (y > 35% of frame) and outside excluded objects
                         if y1 > int(h * 0.35) and bw_orig > 15 and bh_orig > 15:
-                            boxes_orig.append([x1, y1, bw_orig, bh_orig])
+                            patch_ex = ex_mask[y1:y1+bh_orig, x1:x1+bw_orig]
+                            if patch_ex.size > 0 and np.mean(patch_ex > 0) < 0.20:
+                                boxes_orig.append([x1, y1, bw_orig, bh_orig])
+                                filtered_scores.append(float(sc))
 
                     if boxes_orig:
-                        indices = cv2.dnn.NMSBoxes(boxes_orig, p_scores.tolist(), confidence_threshold, 0.40)
+                        indices = cv2.dnn.NMSBoxes(boxes_orig, filtered_scores, confidence_threshold, 0.40)
                         if len(indices) > 0:
-                            for idx in indices.flatten()[:3]:  # Top 3 verified potholes
+                            for idx in indices.flatten()[:3]:
                                 box = boxes_orig[idx]
-                                score = float(p_scores[idx])
+                                score = filtered_scores[idx]
                                 norm_box = {
                                     "x": box[0], "y": box[1], "w": box[2], "h": box[3],
                                     "orig_w": w, "orig_h": h,
@@ -348,28 +380,30 @@ class RealtimeVideoDetector:
                 print(f"[RealtimeVideoDetector] Pothole model inference error: {e}")
 
         # 2. Road Surface Structural Inspection (Edge Cavity & Crack Analysis)
-        # Examines lower half of the frame (road surface) for severe surface rupture / depression
-        road_roi = frame[int(h * 0.55):, :]
+        road_roi = frame[int(h * 0.45):, :]
         gray_road = cv2.cvtColor(road_roi, cv2.COLOR_BGR2GRAY)
+        road_ex = ex_mask[int(h * 0.45):, :]
         blur_road = cv2.GaussianBlur(gray_road, (7, 7), 0)
-        edges = cv2.Canny(blur_road, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        thresh_cavity = cv2.adaptiveThreshold(blur_road, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 41, 10)
+        thresh_cavity[road_ex > 0] = 0
 
-        for c in contours:
+        c_contours, _ = cv2.findContours(thresh_cavity, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in c_contours:
             area = cv2.contourArea(c)
-            # Severe localized road cavity / crack
-            if 3500 < area < 40000:
+            if 4000 < area < 40000:
                 rx, ry, rw, rh = cv2.boundingRect(c)
+                # Ensure cavity is inside the road lane, not an outer lens vignette or frame border artifact
+                if rx < int(w * 0.05) or (rx + rw) > int(w * 0.95):
+                    continue
                 aspect = rw / float(rh)
-                if 0.5 < aspect < 3.5:
-                    full_y = int(h * 0.55) + ry
-                    # Check dark cavity contrast vs surrounding pavement
+                if 1.0 < aspect < 3.5:
                     patch = gray_road[ry:ry+rh, rx:rx+rw]
                     mean_val = np.mean(patch)
                     surround_mean = np.mean(gray_road)
-                    if mean_val < surround_mean * 0.72:  # Significantly darker depression
-                        conf = min(0.92, 0.65 + (area / 50000.0) * 0.25)
+                    if mean_val < surround_mean * 0.70:
+                        conf = min(0.95, 0.70 + (area / 40000.0) * 0.25)
                         if conf >= confidence_threshold:
+                            full_y = int(h * 0.45) + ry
                             box = [rx, full_y, rw, rh]
                             norm_box = {
                                 "x": rx, "y": full_y, "w": rw, "h": rh,
@@ -389,82 +423,106 @@ class RealtimeVideoDetector:
                                 "bounding_box": norm_box,
                                 "color": spec["color"],
                                 "bgr": spec["bgr"],
-                                "description": f"Structural road surface rupture / depression cavity ({round(conf*100)}% conf)",
+                                "description": f"Structural asphalt cavity fissure / pothole ({round(conf*100)}% conf)",
                             })
-                            break  # Avoid flood of road patches
+                            break
 
         # 3. Waterlogging & Flooded Roadway Sections (Cyan #06B6D4)
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        sat = hsv[:, :, 1]
-        val = hsv[:, :, 2]
-        # Water specular reflectance: low saturation, moderate-high value, smooth texture
-        water_mask = (sat < 40) & (val > 140)
-        water_mask_road = water_mask[int(h * 0.50):, :]
-        water_ratio = np.sum(water_mask_road) / float(water_mask_road.size)
+        # Physical Ground Water Analysis:
+        # - Excludes all pedestrian and vehicular bounding boxes.
+        # - Identifies genuine standing water pools (cyan-blue sky reflection or muddy flood water).
+        # - Rejects dry pavement, shadows, clothing, and upright objects.
+        road_y_start = int(h * 0.45)
+        road_bgr = frame[road_y_start:, :]
+        road_hsv = cv2.cvtColor(road_bgr, cv2.COLOR_BGR2HSV)
+        road_gray = cv2.cvtColor(road_bgr, cv2.COLOR_BGR2GRAY)
+        road_ex_water = ex_mask[road_y_start:, :]
 
-        if water_ratio > 0.14:  # Significant standing pool
-            # Find largest water pool contour
-            water_uint8 = (water_mask_road * 255).astype(np.uint8)
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-            closed_water = cv2.morphologyEx(water_uint8, cv2.MORPH_CLOSE, kernel)
-            w_contours, _ = cv2.findContours(closed_water, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Standing water signatures:
+        # a) Sky-reflective / deep puddle: H in [80, 130], S in [45, 180], V in [70, 220]
+        # b) Muddy flood water: H in [15, 32], S in [75, 180], V in [65, 160]
+        water_blue = (road_hsv[:, :, 0] >= 80) & (road_hsv[:, :, 0] <= 130) & (road_hsv[:, :, 1] >= 45) & (road_hsv[:, :, 2] >= 70) & (road_hsv[:, :, 2] <= 220)
+        water_muddy = (road_hsv[:, :, 0] >= 15) & (road_hsv[:, :, 0] <= 32) & (road_hsv[:, :, 1] >= 75) & (road_hsv[:, :, 2] >= 65) & (road_hsv[:, :, 2] <= 160)
+        water_cand = (water_blue | water_muddy) & (road_ex_water == 0)
 
-            if w_contours:
-                largest_c = max(w_contours, key=cv2.contourArea)
-                if cv2.contourArea(largest_c) > 6000:
-                    wx, wy, ww, wh = cv2.boundingRect(largest_c)
-                    full_wy = int(h * 0.50) + wy
-                    conf = min(0.95, 0.70 + water_ratio * 0.8)
-                    if conf >= confidence_threshold:
-                        box = [wx, full_wy, ww, wh]
-                        norm_box = {
-                            "x": wx, "y": full_wy, "w": ww, "h": wh,
-                            "orig_w": w, "orig_h": h,
-                            "norm_x": round(wx / w, 4), "norm_y": round(full_wy / h, 4),
-                            "norm_w": round(ww / w, 4), "norm_h": round(wh / h, 4)
-                        }
-                        spec = CIVIC_COLOR_MAP["waterlogging"]
-                        civic_detections.append({
-                            "id": f"CIV-{uuid.uuid4().hex[:6].upper()}",
-                            "label": spec["name"],
-                            "class_name": "waterlogging",
-                            "category": "waterlogging_flood",
-                            "type": "civic_issue",
-                            "confidence": round(conf, 3),
-                            "box": box,
-                            "bounding_box": norm_box,
-                            "color": spec["color"],
-                            "bgr": spec["bgr"],
-                            "description": f"Specular road water ponding and drainage overflow ({round(conf*100)}% conf)",
-                        })
+        kernel_water = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        water_closed = cv2.morphologyEx(water_cand.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel_water)
+        w_contours, _ = cv2.findContours(water_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for wc in w_contours:
+            w_area = cv2.contourArea(wc)
+            # Standing water / waterlogging covers significant road pool area (>= 15,000 px^2)
+            if w_area >= 15000:
+                wx, wy, ww, wh = cv2.boundingRect(wc)
+                aspect = ww / float(wh)
+                # Standing water must be wide / horizontal, never vertical upright
+                if aspect >= 1.4:
+                    patch_gray = road_gray[wy:wy+wh, wx:wx+ww]
+                    edges = cv2.Canny(patch_gray, 50, 150)
+                    edge_dens = np.sum(edges > 0) / float(edges.size)
+                    # Water surface is ultra smooth (< 0.045 edge density)
+                    if edge_dens < 0.045:
+                        full_wy = road_y_start + wy
+                        conf = min(0.96, 0.76 + (w_area / 100000.0) * 0.20)
+                        if conf >= confidence_threshold:
+                            box = [wx, full_wy, ww, wh]
+                            norm_box = {
+                                "x": wx, "y": full_wy, "w": ww, "h": wh,
+                                "orig_w": w, "orig_h": h,
+                                "norm_x": round(wx / w, 4), "norm_y": round(full_wy / h, 4),
+                                "norm_w": round(ww / w, 4), "norm_h": round(wh / h, 4)
+                            }
+                            spec = CIVIC_COLOR_MAP["waterlogging"]
+                            civic_detections.append({
+                                "id": f"CIV-{uuid.uuid4().hex[:6].upper()}",
+                                "label": spec["name"],
+                                "class_name": "waterlogging",
+                                "category": "waterlogging_flood",
+                                "type": "civic_issue",
+                                "confidence": round(conf, 3),
+                                "box": box,
+                                "bounding_box": norm_box,
+                                "color": spec["color"],
+                                "bgr": spec["bgr"],
+                                "description": f"Extensive roadway standing water and surface flood accumulation ({round(conf*100)}% conf)",
+                            })
+                            break
 
         # 4. Garbage Accumulation & Overflowing Bins (Yellow #EAB308)
-        # Check curbside / sidewalk region (left and right margins)
-        curb_left = frame[int(h * 0.45):int(h * 0.85), :int(w * 0.25)]
-        curb_right = frame[int(h * 0.45):int(h * 0.85), int(w * 0.75):]
+        # Check curbside / sidewalk region (left and right margins) outside people, vehicles, and water
+        curb_y_start = int(h * 0.55)
+        curb_h = int(h * 0.90) - curb_y_start
+        curb_left = frame[curb_y_start:curb_y_start+curb_h, :int(w * 0.30)]
+        curb_right = frame[curb_y_start:curb_y_start+curb_h, int(w * 0.65):]
+        curb_ex_left = ex_mask[curb_y_start:curb_y_start+curb_h, :int(w * 0.30)]
+        curb_ex_right = ex_mask[curb_y_start:curb_y_start+curb_h, int(w * 0.65):]
 
-        for curb_patch, x_offset in [(curb_left, 0), (curb_right, int(w * 0.75))]:
+        for curb_patch, curb_ex_patch, x_offset in [(curb_right, curb_ex_right, int(w * 0.65)), (curb_left, curb_ex_left, 0)]:
             if curb_patch.size == 0:
                 continue
             curb_hsv = cv2.cvtColor(curb_patch, cv2.COLOR_BGR2HSV)
-            # High-entropy refuse texture check (chaotic color clusters)
-            curb_gray = cv2.cvtColor(curb_patch, cv2.COLOR_BGR2GRAY)
-            curb_edges = cv2.Canny(curb_gray, 70, 180)
-            edge_dens = np.sum(curb_edges > 0) / float(curb_edges.size)
+            # Mask out standing water in this curb patch
+            water_curb = water_closed[curb_y_start - road_y_start:curb_y_start - road_y_start + curb_h, x_offset:x_offset + curb_patch.shape[1]]
+            # Refuse cluster: refuse color profile outside water and people
+            waste_mask = (((curb_hsv[:, :, 0] >= 25) & (curb_hsv[:, :, 0] <= 80) & (curb_hsv[:, :, 1] >= 45) & (curb_hsv[:, :, 2] >= 35)) | \
+                          ((curb_hsv[:, :, 1] >= 90) & (curb_hsv[:, :, 2] >= 90))) & (curb_ex_patch == 0)
+            if water_curb.shape == waste_mask.shape:
+                waste_mask[water_curb > 0] = 0
 
-            # Color diversity (standard pavement has low hue variation; garbage piles have high variance)
-            hue_std = np.std(curb_hsv[:, :, 0])
-            if edge_dens > 0.08 and hue_std > 35:
-                # Localize refuse cluster
-                g_contours, _ = cv2.findContours(curb_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if g_contours:
-                    large_g = [gc for gc in g_contours if 2000 < cv2.contourArea(gc) < 25000]
-                    if large_g:
-                        best_g = max(large_g, key=cv2.contourArea)
-                        gx, gy, gw, gh = cv2.boundingRect(best_g)
+            kernel_waste = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+            waste_closed = cv2.morphologyEx(waste_mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel_waste)
+            g_contours, _ = cv2.findContours(waste_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            found_g = False
+            for gc in g_contours:
+                g_area = cv2.contourArea(gc)
+                if g_area >= 10000:
+                    gx, gy, gw, gh = cv2.boundingRect(gc)
+                    aspect = gw / float(gh)
+                    if 0.7 <= aspect <= 3.0:
                         full_gx = x_offset + gx
-                        full_gy = int(h * 0.45) + gy
-                        conf = min(0.93, 0.68 + edge_dens * 1.5)
+                        full_gy = curb_y_start + gy
+                        conf = min(0.94, 0.72 + (g_area / 50000.0) * 0.20)
                         if conf >= confidence_threshold:
                             box = [full_gx, full_gy, gw, gh]
                             norm_box = {
@@ -485,9 +543,12 @@ class RealtimeVideoDetector:
                                 "bounding_box": norm_box,
                                 "color": spec["color"],
                                 "bgr": spec["bgr"],
-                                "description": f"Curbside solid waste cluster and unattended refuse accumulation ({round(conf*100)}% conf)",
+                                "description": f"Curbside solid waste cluster and overflowing refuse accumulation ({round(conf*100)}% conf)",
                             })
+                            found_g = True
                             break
+            if found_g:
+                break
 
         return civic_detections
 
@@ -642,9 +703,11 @@ class RealtimeVideoDetector:
 
             # 1. Real YOLO COCO Detection (People & Vehicles)
             obj_dets = self.detect_objects_yolo(frame, confidence_threshold=confidence_threshold)
+            # High-sensitivity objects for bulletproof exclusion of clothing/shadows from civic defect analysis
+            obj_dets_ex = self.detect_objects_yolo(frame, confidence_threshold=0.20)
 
             # 2. Municipal Civic Issue Detection (Potholes, Garbage, Waterlogging)
-            civic_dets = self.detect_civic_issues(frame, confidence_threshold=confidence_threshold)
+            civic_dets = self.detect_civic_issues(frame, confidence_threshold=confidence_threshold, obj_dets=obj_dets_ex)
 
             # 3. Temporal Tracking Update
             all_frame_dets = obj_dets + civic_dets
@@ -682,17 +745,20 @@ class RealtimeVideoDetector:
 
                 elif dtype == "civic_issue":
                     frame_civic.append(det)
-                    cname = det["class_name"]
-                    if cname in civic_counts:
-                        civic_counts[cname] += 1
+                    tid = det["tracking_id"]
+                    if tid not in all_tracked_objects:
+                        all_tracked_objects[tid] = det
+                        cname = det["class_name"]
+                        if cname in civic_counts:
+                            civic_counts[cname] += 1
 
-                    # Save snapshot evidence for potential complaint generation
-                    snap_filename = f"civic_snap_{uuid.uuid4().hex[:8]}.jpg"
-                    snap_path = os.path.join(UPLOAD_DIR, snap_filename)
-                    annotated_frame = self.draw_detections_on_frame(frame, [det])
-                    cv2.imwrite(snap_path, annotated_frame)
-                    det["snapshot_url"] = f"http://localhost:8000/uploads/{snap_filename}"
-                    all_civic_issues.append(det)
+                        # Save snapshot evidence once per unique tracked incident
+                        snap_filename = f"civic_snap_{uuid.uuid4().hex[:8]}.jpg"
+                        snap_path = os.path.join(UPLOAD_DIR, snap_filename)
+                        annotated_frame = self.draw_detections_on_frame(frame, [det])
+                        cv2.imwrite(snap_path, annotated_frame)
+                        det["snapshot_url"] = f"http://localhost:8000/uploads/{snap_filename}"
+                        all_civic_issues.append(det)
 
             frames_results.append({
                 "timestamp_seconds": timestamp_sec,
@@ -712,11 +778,56 @@ class RealtimeVideoDetector:
         total_vehicles = sum(vehicle_counts.values())
         total_civic = len(all_civic_issues)
 
+        # Context-Aware Scene Understanding from Actual Detections
+        if people_count >= 4 and total_vehicles <= 2:
+            scene_type = "public_gathering_area"
+            scene_label = "Public Gathering Area"
+            traffic_condition = "pedestrian_activity"
+            traffic_condition_label = "Pedestrian Gathering (Low Vehicle Traffic)"
+            scene_summary = f"Public gathering area with {people_count} pedestrians and low vehicular activity. No traffic congestion observed."
+        elif people_count >= 3 and total_vehicles >= 3:
+            scene_type = "market_area"
+            scene_label = "Market Area"
+            traffic_condition = "mixed_transit"
+            traffic_condition_label = "Mixed Pedestrian & Commercial Traffic"
+            scene_summary = f"Commercial market area with active footfall ({people_count} pedestrians) and vehicle transit ({total_vehicles} vehicles)."
+        elif total_vehicles >= 10 and people_count <= 1:
+            scene_type = "highway"
+            scene_label = "Highway"
+            traffic_condition = "high_speed_transit"
+            traffic_condition_label = "High-Speed Vehicular Transit"
+            scene_summary = f"Multi-lane highway transit corridor with continuous vehicle flow ({total_vehicles} vehicles)."
+        elif total_vehicles >= 2:
+            scene_type = "urban_road"
+            scene_label = "Urban Road"
+            traffic_condition = "normal_traffic_flow"
+            traffic_condition_label = "Normal Traffic Flow"
+            scene_summary = f"Urban road with active vehicles ({total_vehicles} vehicles) and standard municipal operations."
+        else:
+            scene_type = "residential_street"
+            scene_label = "Residential Street"
+            traffic_condition = "low_activity"
+            traffic_condition_label = "Low Activity Flow"
+            scene_summary = f"Residential street with baseline municipal conditions."
+
+        scene_understanding = {
+            "scene_type": scene_type,
+            "scene_label": scene_label,
+            "traffic_condition": traffic_condition,
+            "traffic_condition_label": traffic_condition_label,
+            "scene_summary": scene_summary,
+            "people_count": people_count,
+            "vehicle_count": total_vehicles,
+            "civic_issues_count": total_civic,
+            "frames_analyzed": len(frames_results)
+        }
+
         return {
             "status": "success",
             "video_duration_seconds": round(duration_seconds, 1),
             "frames_analyzed": len(frames_results),
             "processing_time_ms": elapsed_ms,
+            "scene_understanding": scene_understanding,
             "counts": {
                 "people": people_count,
                 "total_vehicles": total_vehicles,

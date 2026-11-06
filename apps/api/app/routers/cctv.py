@@ -1006,6 +1006,35 @@ async def run_realtime_object_and_civic_detection(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Realtime detection engine failed: {str(exc)}")
 
+    # Synchronize verified real-time detections with recording database records
+    # Ensures the timeline markers, incident count, and detection list always match actual inference!
+    if payload.recording_id:
+        # Clear prior/stale detections for this recording
+        db.query(CctvDetectionModel).filter(CctvDetectionModel.recording_id == payload.recording_id).delete(synchronize_session=False)
+        db.commit()
+
+        # Insert fresh verified detections
+        now = datetime.utcnow()
+        for idx, civ in enumerate(detection_results.get("civic_issues", [])):
+            det_model = CctvDetectionModel(
+                id=f"EVT-RT-{uuid.uuid4().hex[:8].upper()}",
+                camera_id=cam.id,
+                recording_id=payload.recording_id,
+                category=civ.get("category", "road_damage"),
+                event_type=civ.get("class_name", "pothole"),
+                confidence=civ.get("confidence", 0.85),
+                timestamp_offset_seconds=civ.get("timestamp_seconds", 0.0),
+                incident_time=now,
+                snapshot_url=civ.get("snapshot_url"),
+                video_url=video_source,
+                description=civ.get("description", civ.get("label", "Civic defect detected")),
+                bounding_box=civ.get("bounding_box"),
+                priority="high" if (civ.get("confidence") or 0) > 0.80 else "medium",
+                review_status="pending_review"
+            )
+            db.add(det_model)
+        db.commit()
+
     # Broadcast websocket event
     await ws_manager.broadcast("CCTV_REALTIME_DETECTED", {
         "camera_id": cam.id,
@@ -1022,6 +1051,7 @@ async def run_realtime_object_and_civic_detection(
         "video_duration_seconds": detection_results["video_duration_seconds"],
         "frames_analyzed": detection_results["frames_analyzed"],
         "processing_time_ms": detection_results["processing_time_ms"],
+        "scene_understanding": detection_results.get("scene_understanding"),
         "counts": detection_results["counts"],
         "legend": detection_results["legend"],
         "frames": detection_results["frames"],

@@ -486,6 +486,7 @@ export class ApiClient {
     video_duration_seconds: number;
     frames_analyzed: number;
     processing_time_ms: number;
+    scene_understanding?: any;
     counts: {
       people: number;
       total_vehicles: number;
