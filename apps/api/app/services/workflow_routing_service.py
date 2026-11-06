@@ -169,6 +169,38 @@ WORKFLOW_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "permitted_roles": ["admin", "engineer", "corporator", "crew"],
         "notification_template": "Streetlight luminaire and circuit restored on {location}."
     },
+    "streetlight_electrical": {
+        "category": "streetlight_electrical",
+        "name": "Streetlight and Electrical Infrastructure",
+        "workflow_type": "electrical_maintenance",
+        "department": "Municipal Electrical & Street Lighting Department",
+        "assigned_team": "Streetlight & Electrical Repair Crew",
+        "review_queue": "electrical_maintenance",
+        "allowed_statuses": [
+            "submitted",
+            "needs_field_verification",
+            "corporator_queue",
+            "assigned",
+            "in_progress",
+            "awaiting_inspection",
+            "rework_required",
+            "resolved"
+        ],
+        "terminal_status": "resolved",
+        "terminal_label": "Resolved — Electrical Compliance Certified",
+        "evidence_required": [
+            "field_lux_verification",
+            "after_photo",
+            "electrical_continuity_test"
+        ],
+        "model_name": "CivicLens-LumenNet-v2.2",
+        "model_version": "2.2.0",
+        "sla_hours": 36,
+        "is_restricted": False,
+        "requires_police": False,
+        "permitted_roles": ["admin", "engineer", "corporator", "crew"],
+        "notification_template": "Streetlight luminaire and circuit restored on {location}."
+    },
     "waterlogging_flood": {
         "category": "waterlogging_flood",
         "name": "Waterlogging, Flooding and Drainage",
@@ -264,7 +296,7 @@ WORKFLOW_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     },
     "traffic_safety": {
         "category": "traffic_safety",
-        "name": "Traffic Congestion and Road Accidents",
+        "name": "Traffic Flow and Congestion",
         "workflow_type": "traffic_operations",
         "department": "Traffic Police & Intelligent Transit Operations Center",
         "assigned_team": "Traffic Management Quick Response Patrol",
@@ -274,7 +306,6 @@ WORKFLOW_DEFINITIONS: Dict[str, Dict[str, Any]] = {
             "monitoring_queue",
             "traffic_review",
             "patrol_dispatched",
-            "accident_emergency_escalated",
             "congestion_cleared",
             "closed"
         ],
@@ -291,6 +322,36 @@ WORKFLOW_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "requires_police": True,
         "permitted_roles": ["admin", "engineer", "police"],
         "notification_template": "Traffic intervention deployed for {location} by Traffic Management."
+    },
+    "road_accident_hazard": {
+        "category": "road_accident_hazard",
+        "name": "Road Accidents and Public Road Hazards",
+        "workflow_type": "traffic_operations",
+        "department": "Traffic Police & Emergency Highway Patrol Division",
+        "assigned_team": "Accident Relief & Emergency Traffic Response Unit",
+        "review_queue": "traffic_management",
+        "allowed_statuses": [
+            "detected",
+            "monitoring_queue",
+            "traffic_review",
+            "accident_emergency_escalated",
+            "patrol_dispatched",
+            "hazard_cleared",
+            "closed"
+        ],
+        "terminal_status": "hazard_cleared",
+        "terminal_label": "Hazard Cleared — Road Restored",
+        "evidence_required": [
+            "impact_timestamp_clip",
+            "obstruction_assessment"
+        ],
+        "model_name": "CivicLens-AccidentNet-v2.2",
+        "model_version": "2.2.0",
+        "sla_hours": 1,
+        "is_restricted": False,
+        "requires_police": True,
+        "permitted_roles": ["admin", "engineer", "police"],
+        "notification_template": "Accident emergency response deployed to {location}."
     },
     "assault_violence": {
         "category": "assault_violence",
@@ -452,6 +513,65 @@ WORKFLOW_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "requires_police": True,
         "permitted_roles": ["admin", "engineer", "police"],
         "notification_template": "Emergency services dispatched for {location}."
+    },
+    "crowd_emergency": {
+        "category": "crowd_emergency",
+        "name": "Crowd Safety and Public Emergencies",
+        "workflow_type": "public_safety_emergency",
+        "department": "Integrated Emergency Response & Disaster Management Authority",
+        "assigned_team": "Crowd Safety & Medical Quick Response Unit",
+        "review_queue": "public_safety_review",
+        "allowed_statuses": [
+            "candidate_flagged",
+            "emergency_triage",
+            "ambulance_dispatched",
+            "police_unit_on_scene",
+            "resolved",
+            "false_alarm"
+        ],
+        "terminal_status": "resolved",
+        "terminal_label": "Emergency Resolved — Crowd Corridor Secured",
+        "evidence_required": [
+            "crowd_density_snapshot",
+            "medical_dispatch_log"
+        ],
+        "model_name": "CivicLens-CrowdHazard-v2.2",
+        "model_version": "2.2.0",
+        "sla_hours": 1,
+        "is_restricted": False,
+        "requires_police": True,
+        "permitted_roles": ["admin", "engineer", "police"],
+        "notification_template": "Crowd safety intervention deployed for {location}."
+    },
+    "configurable_custom": {
+        "category": "configurable_custom",
+        "name": "Configurable Custom Category",
+        "workflow_type": "custom_operations",
+        "department": "Municipal General Administration & Custom Operations",
+        "assigned_team": "Administrative Operations Review Unit",
+        "review_queue": "road_maintenance",
+        "allowed_statuses": [
+            "submitted",
+            "pending_review",
+            "corporator_queue",
+            "assigned",
+            "in_progress",
+            "awaiting_inspection",
+            "resolved"
+        ],
+        "terminal_status": "resolved",
+        "terminal_label": "Resolved — Custom Verification Completed",
+        "evidence_required": [
+            "field_photo",
+            "review_notes"
+        ],
+        "model_name": "CivicLens-AdaptiveCustom-v2.2",
+        "model_version": "2.2.0",
+        "sla_hours": 24,
+        "is_restricted": False,
+        "requires_police": False,
+        "permitted_roles": ["admin", "engineer", "corporator", "crew"],
+        "notification_template": "Custom operational issue handled at {location}."
     }
 }
 
@@ -473,16 +593,18 @@ class WorkflowRoutingEngine:
             return WORKFLOW_DEFINITIONS[cat_key]
 
         # Aliases
+        if "accident" in cat_key or "collision" in cat_key:
+            return WORKFLOW_DEFINITIONS["road_accident_hazard"]
+        if "traffic" in cat_key or "congestion" in cat_key or "queue" in cat_key:
+            return WORKFLOW_DEFINITIONS["traffic_safety"]
         if "road" in cat_key or "pothole" in cat_key:
             return WORKFLOW_DEFINITIONS["road_damage"]
         if "garbage" in cat_key or "waste" in cat_key or "dumping" in cat_key:
             return WORKFLOW_DEFINITIONS["garbage_waste"]
-        if "light" in cat_key or "lamp" in cat_key:
-            return WORKFLOW_DEFINITIONS["streetlight"]
+        if "light" in cat_key or "lamp" in cat_key or "electric" in cat_key:
+            return WORKFLOW_DEFINITIONS["streetlight_electrical"]
         if "water" in cat_key or "flood" in cat_key or "drain" in cat_key:
             return WORKFLOW_DEFINITIONS["waterlogging_flood"]
-        if "traffic" in cat_key or "accident" in cat_key or "vehicle" in cat_key or "congestion" in cat_key:
-            return WORKFLOW_DEFINITIONS["traffic_safety"]
         if "assault" in cat_key or "violenc" in cat_key or "fight" in cat_key:
             return WORKFLOW_DEFINITIONS["assault_violence"]
         if "sex" in cat_key or "harass" in cat_key or "rape" in cat_key:
@@ -491,6 +613,10 @@ class WorkflowRoutingEngine:
             return WORKFLOW_DEFINITIONS["forced_movement"]
         if "drug" in cat_key or "narcotic" in cat_key:
             return WORKFLOW_DEFINITIONS["drug_activity"]
+        if "crowd" in cat_key or "collapse" in cat_key or "stampede" in cat_key:
+            return WORKFLOW_DEFINITIONS["crowd_emergency"]
+        if "custom" in cat_key or "adaptive" in cat_key:
+            return WORKFLOW_DEFINITIONS["configurable_custom"]
 
         # Default fallback
         return WORKFLOW_DEFINITIONS["road_damage"]

@@ -259,13 +259,18 @@ export interface RecordingSegment {
 
 export type DetectionCategory =
   | 'traffic_safety'
+  | 'road_accident_hazard'
   | 'garbage_waste'
   | 'waterlogging_flood'
   | 'road_damage'
+  | 'streetlight_electrical'
   | 'assault_violence'
   | 'forced_movement'
   | 'sexual_violence_sensitive'
+  | 'drug_activity'
+  | 'crowd_emergency'
   | 'other_public_safety'
+  | 'configurable_custom'
   | 'civic_infrastructure'
   | 'public_safety';
 
@@ -283,8 +288,13 @@ export type DetectionEventType =
   | 'medical_collapse'
   | 'crowd_surge'
   | 'vehicle_congestion'
+  | 'persistent_vehicle_queue'
   | 'roadway_obstruction'
   | 'wrong_way_hazard'
+  | 'vehicle_collision'
+  | 'vehicle_loss_of_control'
+  | 'fallen_hazard_debris'
+  | 'dangerous_road_condition'
   | 'garbage_pile_accumulation'
   | 'overflowing_waste_bin'
   | 'discarded_waste_bags'
@@ -298,16 +308,29 @@ export type DetectionEventType =
   | 'broken_road_edge'
   | 'damaged_sidewalk_paver'
   | 'damaged_infrastructure_fixture'
+  | 'damaged_streetlight_pole'
+  | 'fallen_lighting_fixture'
+  | 'damaged_electrical_infrastructure'
+  | 'nonfunctional_streetlight'
   | 'potential_physical_assault'
+  | 'pushing_striking_altercation'
   | 'physical_struggle_altercation'
+  | 'group_confrontation'
   | 'group_violence_indicator'
   | 'fall_during_altercation'
+  | 'potential_coercive_violence'
+  | 'physical_distress_restraint'
   | 'physical_restraint_displacement'
   | 'coercive_interaction'
   | 'coercive_physical_restraint'
+  | 'suspected_illicit_exchange_indicator'
+  | 'covert_hand_to_hand_transaction'
+  | 'dense_crowd_hazard'
+  | 'sudden_crowd_surge'
   | 'medical_collapse_fall'
   | 'crowd_surge_bottleneck'
-  | 'emergency_corridor_obstruction';
+  | 'emergency_corridor_obstruction'
+  | 'custom_configurable_incident';
 
 export type DetectionReviewStatus =
   | 'pending_review'
@@ -442,6 +465,8 @@ export interface SceneUnderstanding {
     road_surfaces?: number;
   };
   detected_objects?: SceneObjectDetection[];
+  main_activities?: string[];
+  ambient_lighting_quality?: string;
   scene_summary: string;
   visibility: string;
   analyzed_duration_seconds: number;
@@ -449,6 +474,15 @@ export interface SceneUnderstanding {
   total_incident_candidates_evaluated: number;
   incident_candidates_rejected: number;
   verified_incidents_count: number;
+  analysis_diagnostics?: {
+    recording_duration_seconds: number;
+    frames_processed: number;
+    models_used: number;
+    findings_generated: number;
+    inconclusive_results: number;
+    rejected_false_positives: number;
+    processing_errors: number;
+  };
 }
 
 export interface AnalysisJob {
@@ -468,6 +502,7 @@ export interface AnalysisJob {
   detections_count: number;
   scene_understanding?: SceneUnderstanding | null;
   detected_objects?: SceneObjectDetection[];
+  diagnostics?: Record<string, any> | null;
   error_message?: string | null;
   created_at?: string | null;
   completed_at?: string | null;

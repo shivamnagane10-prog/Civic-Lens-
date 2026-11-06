@@ -851,6 +851,7 @@ async def run_multi_category_video_analysis(
         "scene_understanding": scene_u,
         "detected_objects": analysis_res.get("detected_objects", []),
         "rejected_candidates": analysis_res.get("rejected_candidates", []),
+        "diagnostics": analysis_res.get("diagnostics", {}),
         "detections": all_responses
     }
 
@@ -877,6 +878,7 @@ def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db))
             "detections_count": 0,
             "scene_understanding": None,
             "detected_objects": [],
+            "diagnostics": None,
             "error_message": None,
             "created_at": None,
             "completed_at": None
@@ -913,6 +915,7 @@ def get_recording_analysis_job(recording_id: str, db: Session = Depends(get_db))
         "detections_count": job.detections_count,
         "scene_understanding": scene_u,
         "detected_objects": scene_u.get("detected_objects", []) if scene_u else [],
+        "diagnostics": scene_u.get("analysis_diagnostics") if scene_u else None,
         "error_message": job.error_message,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None

@@ -117,13 +117,17 @@ class AnalyzeVideoMultiCategoryRequest(BaseModel):
     video_url: Optional[str] = None
     categories: Optional[List[str]] = Field(default_factory=lambda: [
         "traffic_safety",
+        "road_accident_hazard",
         "garbage_waste",
         "waterlogging_flood",
         "road_damage",
+        "streetlight_electrical",
         "assault_violence",
-        "forced_movement",
         "sexual_violence_sensitive",
-        "other_public_safety"
+        "forced_movement",
+        "drug_activity",
+        "crowd_emergency",
+        "configurable_custom"
     ])
     confidence_threshold: Optional[float] = 0.70
     sample_interval_seconds: Optional[float] = 1.0
@@ -199,6 +203,7 @@ class AnalysisJobResponse(BaseModel):
     detections_count: int
     scene_understanding: Optional[Dict[str, Any]] = None
     detected_objects: Optional[List[Dict[str, Any]]] = None
+    diagnostics: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
